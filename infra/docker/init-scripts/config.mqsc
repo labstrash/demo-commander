@@ -1,0 +1,25 @@
+* Create Local Queues
+
+DEFINE QLOCAL('CAMT.052B.QUEUE') REPLACE
+DEFINE QLOCAL('CAMT.052BT.QUEUE') REPLACE
+DEFINE QLOCAL('CAMT.053S.QUEUE') REPLACE
+DEFINE QLOCAL('CAMT.053E.QUEUE') REPLACE
+DEFINE QLOCAL('CAMT.054C.QUEUE') REPLACE
+DEFINE QLOCAL('CAMT.054D.QUEUE') REPLACE
+
+* Inbound queues
+DEFINE QLOCAL('CAMT.ONDEMAND.QUEUE') REPLACE
+DEFINE QLOCAL('CAMT.ONBOARDING.QUEUE') REPLACE
+
+* Grant 'app' user authority on all CAMT queues.
+* The IBM MQ Docker image pre-authorises 'app' only on DEV.* queues.
+* '**' is required — '*' only matches a single name level, so CAMT.* would NOT match CAMT.052B.QUEUE.
+* PUT    — required to send messages (outbound queues)
+* GET    — required to receive messages (inbound queues)
+* INQ    — required to inspect queue attributes (JmsTemplate uses this)
+* BROWSE — required to peek at messages without consuming them
+
+SET AUTHREC PROFILE('CAMT.**') OBJTYPE(QUEUE) PRINCIPAL('app') AUTHADD(PUT,GET,INQ,BROWSE)
+
+* Optional: verify queues
+DISPLAY QLOCAL(*)

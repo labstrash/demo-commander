@@ -1,0 +1,87 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    container_name: sqlserver
+
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=YourStrong!Passw0rd
+
+    ports:
+      - "1433:1433"
+
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/opt/mssql-tools18/bin/sqlcmd",
+          "-S", "localhost",
+          "-U", "sa",
+          "-P", "YourStrong!Passw0rd",
+          "-Q", "SELECT 1",
+          "-C"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  ibmmq:
+    image: ibmcom/mq:latest
+    container_name: ibmmq
+
+    ports:
+      - "1414:1414"
+      - "9443:9443"
+
+    environment:
+      LICENSE: accept
+      MQ_QMGR_NAME: QM1
+      MQ_APP_PASSWORD: passw0rd
+
+    volumes:
+      - ./init-scripts/config.mqsc:/etc/mqm/config.mqsc:ro
+      - ibmmq-data:/mnt/mqm
+
+    healthcheck:
+      test: ["CMD", "dspmq", "-m", "QM1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    restart: unless-stopped
+
+  sqlserver-init:
+    image: mcr.microsoft.com/mssql-tools
+    container_name: sqlserver-init
+
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+
+    volumes:
+      - ./init-scripts:/init-scripts:ro
+
+    # Run each script in order; exit 0 so Docker marks the container as exited (not failed)
+    command: >
+      /bin/bash -c "
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -i /init-scripts/01-schema.sql -C &&
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -i /init-scripts/02-seed.sql -C &&
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -i /init-scripts/03-quartz-schema.sql -C &&
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -i /init-scripts/04-audit-deadletter-schema.sql -C &&
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -i /init-scripts/05-configuration-read-migrations.sql -C &&
+        echo 'All init scripts completed successfully.'
+      "
+    # NOTE: 05-tvp-types.sql is a deprecated no-op (kept only to preserve file
+    # numbering) and isn't run. 07-test-stored-procedure.sql is a manual smoke
+    # test, not part of automated startup — run it by hand after init completes.
+
+    restart: "no"
+
+volumes:
+  sqlserver-data:
+  ibmmq-data:
