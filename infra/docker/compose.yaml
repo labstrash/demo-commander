@@ -66,20 +66,24 @@ services:
     volumes:
       - ./init-scripts:/init-scripts:ro
 
-    # Run each script in order; exit 0 so Docker marks the container as exited (not failed)
+    # Run each script in order; -b makes sqlcmd exit non-zero on SQL errors so
+    # the && chain actually stops (and the container reports failure) instead
+    # of silently continuing past a broken step.
     command: >
       /bin/bash -c "
-        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -i /init-scripts/01-schema.sql -C &&
-        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -i /init-scripts/02-seed.sql -C &&
-        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -i /init-scripts/03-quartz-schema.sql -C &&
-        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -i /init-scripts/04-audit-deadletter-schema.sql -C &&
-        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -i /init-scripts/05-configuration-read-migrations.sql -C &&
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -Q \"IF DB_ID('REPORTDB') IS NULL CREATE DATABASE REPORTDB;\" -C &&
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -i /init-scripts/db/00-drop-all.sql -C &&
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -i /init-scripts/db/01-schema-reference.sql -C &&
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -i /init-scripts/db/02-schema-sequence.sql -C &&
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -i /init-scripts/db/03-schema-agreement.sql -C &&
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -i /init-scripts/db/04-schema-scope.sql -C &&
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -i /init-scripts/db/05-schema-report.sql -C &&
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -i /init-scripts/db/06-schema-audit-deadletter.sql -C &&
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -i /init-scripts/db/07-schema-fetch-config.sql -C &&
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -i /init-scripts/db/98-drop-quartz.sql -C &&
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -i /init-scripts/db/99-schema-quartz.sql -C &&
         echo 'All init scripts completed successfully.'
       "
-    # NOTE: 05-tvp-types.sql is a deprecated no-op (kept only to preserve file
-    # numbering) and isn't run. 07-test-stored-procedure.sql is a manual smoke
-    # test, not part of automated startup — run it by hand after init completes.
-
     restart: "no"
 
 volumes:
