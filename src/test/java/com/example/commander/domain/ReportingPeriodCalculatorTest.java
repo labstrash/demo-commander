@@ -221,15 +221,6 @@ class ReportingPeriodCalculatorTest {
     }
 
     @Test
-    void shouldThrowForUnhandledFrequency() {
-        // Create a custom frequency if needed, or this should not happen in normal usage
-        Instant fireTime = Instant.now();
-
-        // The calculator should handle all enum values, but we can test the default case
-        // by using a frequency that's not handled (shouldn't happen normally)
-    }
-
-    @Test
     void shouldThrowWhenFireTimeNull() {
         assertThatThrownBy(() -> calculator.calculate(ReportFrequency.DAILY, null))
                 .isInstanceOf(NullPointerException.class);

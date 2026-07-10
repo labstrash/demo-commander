@@ -252,17 +252,5 @@ public class SchedulingProperties {
         public boolean isDailyFrequency() {
             return "DAILY".equals(frequency);
         }
-
-        /**
-         * Returns true if this is a boundaries-based frequency with multiple daily executions.
-         *
-         * <p>These frequencies use window-based scheduling where each boundary defines a
-         * time window for job execution.
-         */
-        public boolean isWindowTimeFrequency() {
-            return hasBoundarySchedule()
-                    && Set.of("ONE_TIME_PER_DAY", "FOUR_TIMES_PER_DAY", "EIGHT_TIMES_PER_DAY")
-                            .contains(frequency);
-        }
     }
 }

@@ -2,6 +2,7 @@ package com.example.commander.config;
 
 import static org.assertj.core.api.Assertions.*;
 
+import com.example.commander.domain.ReportFrequency;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -212,18 +213,23 @@ class SchedulingPropertiesTest {
         schedule.setBoundaries("09:00,13:00,18:00,21:00");
 
         schedule.setFrequency("ONE_TIME_PER_DAY");
-        assertThat(schedule.isWindowTimeFrequency()).isTrue();
+        assertThat(ReportFrequency.fromConfig(schedule.getFrequency()).isWindowTimeFrequency())
+                .isTrue();
 
         schedule.setFrequency("FOUR_TIMES_PER_DAY");
-        assertThat(schedule.isWindowTimeFrequency()).isTrue();
+        assertThat(ReportFrequency.fromConfig(schedule.getFrequency()).isWindowTimeFrequency())
+                .isTrue();
 
         schedule.setFrequency("EIGHT_TIMES_PER_DAY");
-        assertThat(schedule.isWindowTimeFrequency()).isTrue();
+        assertThat(ReportFrequency.fromConfig(schedule.getFrequency()).isWindowTimeFrequency())
+                .isTrue();
 
         schedule.setFrequency("DAILY");
-        assertThat(schedule.isWindowTimeFrequency()).isFalse();
+        assertThat(ReportFrequency.fromConfig(schedule.getFrequency()).isWindowTimeFrequency())
+                .isFalse();
 
         schedule.setFrequency("EVERY_30_MIN");
-        assertThat(schedule.isWindowTimeFrequency()).isFalse();
+        assertThat(ReportFrequency.fromConfig(schedule.getFrequency()).isWindowTimeFrequency())
+                .isFalse();
     }
 }

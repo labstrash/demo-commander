@@ -25,7 +25,7 @@ match, not the other way around.
 | 0, 2–6, 8–9 | Not yet written as standalone guides |
 | 7 — On-Demand API | Read-mechanics covered by the Fetch & Assembly guide above; window-input-mode decision (§7) and the rest of the on-demand surface not yet guide-documented |
 
-**Code lives at:** `github.com/labstrash/commander` (`main` branch is current as of this
+**Code lives at:** `github.com/labstrash/demo-commander` (`main` branch is current as of this
 revision). The repo is the source of truth for exact implementation; this document and
 the implementation guides are the design references, updated by hand.
 

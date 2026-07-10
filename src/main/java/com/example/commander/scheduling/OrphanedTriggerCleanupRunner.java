@@ -54,17 +54,21 @@ public class OrphanedTriggerCleanupRunner implements ApplicationRunner {
                     "Orphaned trigger cleanup: {} triggers registered, {} expected, none orphaned",
                     currentKeys.size(),
                     expectedKeys.size());
-            return;
+        } else {
+            log.warn(
+                    "Orphaned trigger cleanup: found {} orphaned trigger(s) no longer in configuration: {}",
+                    orphaned.size(),
+                    orphaned);
+            for (TriggerKey key : orphaned) {
+                removeOrphan(key);
+            }
         }
 
-        log.warn(
-                "Orphaned trigger cleanup: found {} orphaned trigger(s) no longer in configuration: {}",
-                orphaned.size(),
-                orphaned);
-
-        for (TriggerKey key : orphaned) {
-            removeOrphan(key);
-        }
+        // spring.quartz.auto-startup=false means the scheduler is otherwise never started.
+        // Starting it here, after cleanup, guarantees no trigger — orphaned or current —
+        // can fire before this runner has finished reconciling scheduler state against config.
+        log.info("Cleanup complete, starting scheduler");
+        scheduler.start();
     }
 
     private void removeOrphan(TriggerKey key) {

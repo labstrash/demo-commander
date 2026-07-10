@@ -234,7 +234,10 @@ commander.scheduling.schedules[7].report-types=CAMT054C
 **Field rules:**
 - Each `schedules[i]` entry supplies **exactly one** of `cron` or `boundaries` — never both, never neither. This single field determines Pattern A vs. Pattern B; there is no separate discriminator field to keep in sync.
 - `window-minutes` is **required** on every `cron`-based entry **except `DAILY`** (which uses the calendar-day rule and must leave it unset), and **must be absent** on every `boundaries`-based entry. This is the lookback duration in minutes (e.g. `30` for `EVERY_30_MIN`, `240` for `EVERY_4_HOURS`) — kept as an explicit value rather than inferred from the `frequency` label, so it's visible directly next to its cron expression and adding a new interval-based frequency never requires a code change.
-- `boundaries`, when present, must be non-empty and strictly ascending by time-of-day.
+- `boundaries`, when present, must be non-empty, strictly ascending by time-of-day, and
+    must not include `00:00` — sequence 0 already implies "midnight to first boundary" per
+    §2's window formula, so a `00:00` entry would be a redundant, zero-length degenerate
+    window rather than a meaningful boundary.
 - `report-types` must be non-empty.
 - `(report-type, frequency)` pairs are implicitly unique — the registrar fails fast if the same report type appears twice for the same frequency (e.g. duplicated across two schedule entries with the same `frequency`, or listed twice within one entry's `report-types`).
 - This list is the **sole source of truth** for which jobs exist. It is independent of `CAMT.ReportTypeFrequency` (which remains an unenforced documentation aid per the existing schema comment) and independent of which `ReportConfig` rows are currently active — a job can be registered here with zero active configs behind it; it will simply have nothing to do when it fires (see §7, step 1).
@@ -447,6 +450,13 @@ are the responsibility of the separate Spring Batch/audit guide (§12).
 
 Record of review feedback and the decisions made in response, kept for future
 reference. Newest round at the top.
+
+### Round 5 — Implementation follow-up
+
+| # | Feedback / Question | Decision |
+|---|---|---|
+| 1 | §4 documents the Pattern B trigger `JobDataMap` key as `sequence`, but the implementation uses `windowSequence`. | Guide updated to match implementation: the trigger `JobDataMap` key is `windowSequence`, not `sequence`. No functional change — `windowSequence` is clearer given `JobDetail`'s own `windowIntervalMinutes` key already uses the fuller name. |
+| 2 | Implementation rejects `boundaries` entries containing `00:00`, which isn't called out in §5. | Confirmed correct and intentional: `00:00` as a boundary would produce a zero-length window (sequence 0's start is already implicitly midnight). Added to §5's field rules. |
 
 ### Round 4 — Local test run review
 
