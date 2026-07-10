@@ -13,6 +13,10 @@ import org.springframework.stereotype.Repository;
  *
  * <p>Performs single-row lookups for recipients and report configurations
  * used in on-demand report generation.
+ *
+ * <p><b>Ahead of the current phase</b> — see the class-level note on
+ * {@link ReportConfigLookupRepository}. Not called from anywhere in the scheduled path;
+ * confirm the on-demand lookup contract with the team before relying on it.
  */
 @Repository
 public class JdbcReportConfigLookupRepository implements ReportConfigLookupRepository {

@@ -3,6 +3,7 @@ package com.example.commander.scheduling;
 import com.example.commander.domain.ReportFrequency;
 import com.example.commander.domain.ReportWindow;
 import com.example.commander.domain.ReportingPeriodCalculator;
+import com.example.commander.service.ScheduledConfigReader;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.List;
@@ -43,9 +44,12 @@ public class ReportSchedulingJob implements Job {
     public static final String KEY_WINDOW_SEQUENCE = "windowSequence";
 
     private final ReportingPeriodCalculator reportingPeriodCalculator;
+    private final ScheduledConfigReader configReader;
 
-    public ReportSchedulingJob(ReportingPeriodCalculator reportingPeriodCalculator) {
+    public ReportSchedulingJob(
+            ReportingPeriodCalculator reportingPeriodCalculator, ScheduledConfigReader configReader) {
         this.reportingPeriodCalculator = reportingPeriodCalculator;
+        this.configReader = configReader;
     }
 
     /**
@@ -92,12 +96,21 @@ public class ReportSchedulingJob implements Job {
                     window.windowStartUtc(),
                     window.windowEndUtc());
 
+            // Phase 1: read + assemble + fan-out only (no publish/audit yet).
+            ScheduledConfigReader.ReadSummary summary = configReader.readAssembleAndFanOut(
+                    reportType, frequencyStr, window.windowStartUtc(), window.windowEndUtc());
+
             // TODO: Integrate with downstream processing:
             // - Phase 4: Spring Batch pipeline
             // - Phase 5: Message queue publication
             // - Phase 6: Audit record creation
 
-            log.info("Job completed successfully: reportType={}, frequency={}", reportType, frequency);
+            log.info(
+                    "Job completed successfully: reportType={}, frequency={}, configsRead={}, messagesAssembled={}",
+                    reportType,
+                    frequency,
+                    summary.treeCount(),
+                    summary.messageCount());
 
         } catch (Exception e) {
             log.error("Job failed: reportType={}, frequency={}, fireTime={}", reportType, frequency, fireTime, e);

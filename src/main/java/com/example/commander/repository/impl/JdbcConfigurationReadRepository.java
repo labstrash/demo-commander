@@ -12,6 +12,9 @@ import com.example.commander.repository.ConfigurationReadRepository;
 import com.example.commander.repository.tvp.TvpParameterSource;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -30,6 +33,8 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 public class JdbcConfigurationReadRepository implements ConfigurationReadRepository {
+
+    private static final Logger log = LoggerFactory.getLogger(JdbcConfigurationReadRepository.class);
 
     /** Maximum safe size for the level 1→2 plain IN-list query. */
     private static final int SCOPE_QUERY_SAFE_IN_LIST_SIZE = 2000;
@@ -144,23 +149,44 @@ public class JdbcConfigurationReadRepository implements ConfigurationReadReposit
             return List.of();
         }
 
-        // This whole sequence is read-only and either completes or throws before any
-        // writer-stage work (MQ publish / audit insert) begins for the caller's chunk — a
-        // failure partway through never leaves partial persistence behind, so it's safe to
-        // let exceptions here propagate as-is rather than catching and returning a partial
-        // or empty tree.
+        long lastSeenId = configs.getLast().id();
+        String reportType = configs.getFirst().reportType();
+        String reportFrequency = configs.getFirst().reportFrequency();
+
         List<Long> configIds = configs.stream().map(ReportConfigRow::id).toList();
-        List<AgreementScopeRow> scopes = findScopesByConfigIds(configIds);
+        List<AgreementScopeRow> scopes =
+                fetchStage("scopes", reportType, reportFrequency, lastSeenId, () -> findScopesByConfigIds(configIds));
 
         List<Long> scopeIds = scopes.stream().map(AgreementScopeRow::id).toList();
-        List<PaymentTypeAssignmentRow> assignments = findAssignmentsByScopeIds(scopeIds);
+        List<PaymentTypeAssignmentRow> assignments = fetchStage(
+                "assignments", reportType, reportFrequency, lastSeenId, () -> findAssignmentsByScopeIds(scopeIds));
 
         List<Long> assignmentIds =
                 assignments.stream().map(PaymentTypeAssignmentRow::id).toList();
-        List<AccountAssignmentRow> accounts = findAccountsByAssignmentIds(assignmentIds);
-        List<AliasAssignmentRow> aliases = findAliasesByAssignmentIds(assignmentIds);
+        List<AccountAssignmentRow> accounts = fetchStage(
+                "accounts", reportType, reportFrequency, lastSeenId, () -> findAccountsByAssignmentIds(assignmentIds));
+        List<AliasAssignmentRow> aliases = fetchStage(
+                "aliases", reportType, reportFrequency, lastSeenId, () -> findAliasesByAssignmentIds(assignmentIds));
 
         return ReportConfigTreeAssembler.assemble(configs, scopes, assignments, accounts, aliases);
+    }
+
+    private <T> List<T> fetchStage(
+            String stageName, String reportType, String reportFrequency, long lastSeenId, Supplier<List<T>> query) {
+        try {
+            return query.get();
+        } catch (RuntimeException e) {
+            // No partial persistence: this propagates as-is rather than swallowing.
+            // Logged here only for debuggability (reportType/frequency/page position/stage).
+            log.error(
+                    "Staged read failed at stage={} for reportType={}, reportFrequency={}, page lastSeenId={}",
+                    stageName,
+                    reportType,
+                    reportFrequency,
+                    lastSeenId,
+                    e);
+            throw e;
+        }
     }
 
     private <T> List<T> queryWithTvp(String sql, Collection<Long> ids, RowMapper<T> rowMapper) {
