@@ -22,9 +22,6 @@ import org.springframework.stereotype.Component;
  * This runner fills that gap by comparing currently registered triggers against
  * the expected set and removing any orphaned triggers.
  *
- * <p>Runs during application startup via {@link ApplicationRunner} to ensure
- * the scheduler is fully initialized before cleanup begins.
- *
  * <p>Safe for clustered environments: {@code unscheduleJob()} is idempotent,
  * so concurrent cleanup attempts from multiple nodes are harmless.
  */
