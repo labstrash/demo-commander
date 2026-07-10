@@ -9,7 +9,6 @@ import java.util.List;
 import org.quartz.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -43,8 +42,11 @@ public class ReportSchedulingJob implements Job {
     /** Job data key for window sequence number (0-based). */
     public static final String KEY_WINDOW_SEQUENCE = "windowSequence";
 
-    @Autowired
-    private ReportingPeriodCalculator reportingPeriodCalculator;
+    private final ReportingPeriodCalculator reportingPeriodCalculator;
+
+    public ReportSchedulingJob(ReportingPeriodCalculator reportingPeriodCalculator) {
+        this.reportingPeriodCalculator = reportingPeriodCalculator;
+    }
 
     /**
      * Executes the report scheduling job.
