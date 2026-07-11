@@ -38,17 +38,19 @@ Execute the scripts in the following order:
 | 7 | `06-schema-audit-deadletter.sql` | Creates DeadLetterMessage and ReportCommandAudit tables |
 | 8 | `07-schema-fetch-config.sql` | Creates the `dbo.BigIntIdList` table type for id-set query parameters |
 | 9 | `08-seed-data.sql` | Seeds demo/dev data: 2 happy-path scenarios plus 3 fetch-config read-path edge cases (zero-scope config, dangling PTA, multi-scope fan-in) |
-| 10 | `98-drop-quartz.sql` | **CLEANUP**: Drops all Quartz (`QRTZ_*`) job store objects |
-| 11 | `99-schema-quartz.sql` | Creates the Quartz JDBC job store tables, foreign keys, and indexes |
+| 10 | `96-drop-batch.sql` | **CLEANUP**: Drops all Spring Batch (`BATCH_*`) job repository objects |
+| 11 | `97-schema-batch.sql` | Creates the Spring Batch job repository tables and sequences |
+| 12 | `98-drop-quartz.sql` | **CLEANUP**: Drops all Quartz (`QRTZ_*`) job store objects |
+| 13 | `99-schema-quartz.sql` | Creates the Quartz JDBC job store tables, foreign keys, and indexes |
 
-`98`/`99` are numbered out of sequence deliberately: Quartz is unrelated to the CAMT schema, so keeping its drop/create pair at the end leaves room to add more CAMT-related scripts (08, 09, ...) without renumbering.
+`96`-`99` are numbered out of sequence deliberately: Spring Batch and Quartz are both unrelated to the CAMT schema, so keeping their drop/create pairs together at the end leaves room to add more CAMT-related scripts (08, 09, ...) without renumbering.
 
 ## How to Run
 
 ### Option 1: SQL Server Management Studio (SSMS)
 1. Open SSMS and connect to your database server
 2. Select the `REPORTDB` database in the query window dropdown
-3. Open each script file in order (00 through 07, then 98, then 99)
+3. Open each script file in order (00 through 08, then 96 through 99)
 4. Execute each script completely before moving to the next
 
 ### Option 2: SQLCMD
@@ -62,6 +64,8 @@ sqlcmd -S <server_name> -d REPORTDB -i 05-schema-report.sql
 sqlcmd -S <server_name> -d REPORTDB -i 06-schema-audit-deadletter.sql
 sqlcmd -S <server_name> -d REPORTDB -i 07-schema-fetch-config.sql
 sqlcmd -S <server_name> -d REPORTDB -i 08-seed-data.sql
+sqlcmd -S <server_name> -d REPORTDB -i 96-drop-batch.sql
+sqlcmd -S <server_name> -d REPORTDB -i 97-schema-batch.sql
 sqlcmd -S <server_name> -d REPORTDB -i 98-drop-quartz.sql
 sqlcmd -S <server_name> -d REPORTDB -i 99-schema-quartz.sql
 ```
@@ -70,7 +74,7 @@ sqlcmd -S <server_name> -d REPORTDB -i 99-schema-quartz.sql
 ```powershell
 $server = "your_server_name"
 $database = "REPORTDB"
-$scripts = @("00-drop-all.sql", "01-schema-reference.sql", "02-schema-sequence.sql", "03-schema-agreement.sql", "04-schema-scope.sql", "05-schema-report.sql", "06-schema-audit-deadletter.sql", "07-schema-fetch-config.sql", "08-seed-data.sql", "98-drop-quartz.sql", "99-schema-quartz.sql")
+$scripts = @("00-drop-all.sql", "01-schema-reference.sql", "02-schema-sequence.sql", "03-schema-agreement.sql", "04-schema-scope.sql", "05-schema-report.sql", "06-schema-audit-deadletter.sql", "07-schema-fetch-config.sql", "08-seed-data.sql", "96-drop-batch.sql", "97-schema-batch.sql", "98-drop-quartz.sql", "99-schema-quartz.sql")
 
 foreach ($script in $scripts) {
     Write-Host "Executing $script..."
@@ -94,6 +98,8 @@ sqlcmd -S <server_name> -d REPORTDB -i 05-schema-report.sql && \
 sqlcmd -S <server_name> -d REPORTDB -i 06-schema-audit-deadletter.sql && \
 sqlcmd -S <server_name> -d REPORTDB -i 07-schema-fetch-config.sql && \
 sqlcmd -S <server_name> -d REPORTDB -i 08-seed-data.sql && \
+sqlcmd -S <server_name> -d REPORTDB -i 96-drop-batch.sql && \
+sqlcmd -S <server_name> -d REPORTDB -i 97-schema-batch.sql && \
 sqlcmd -S <server_name> -d REPORTDB -i 98-drop-quartz.sql && \
 sqlcmd -S <server_name> -d REPORTDB -i 99-schema-quartz.sql
 ```
@@ -169,6 +175,16 @@ sqlcmd -S <server_name> -d REPORTDB -i 99-schema-quartz.sql
 - **No idempotency guards**: consistent with the rest of this directory, since `00-drop-all.sql` always runs first
 - **Validates**: row counts across all seeded tables; asserts the zero-scope config really has zero scopes and the fan-in config really has exactly two
 
+### 96-drop-batch.sql
+- **Action**: Drops all Spring Batch (`BATCH_*`) foreign keys, tables, and identity sequences from the `dbo` schema. Scoped strictly to objects named `BATCH_%`, so it can never touch unrelated `dbo` objects.
+- **Result**: All Spring Batch job repository objects are completely removed
+- **Validation**: Confirms no `BATCH_*` tables or sequences remain
+
+### 97-schema-batch.sql
+- **Creates**: The 6 Spring Batch `JobRepository` metadata tables (`BATCH_JOB_INSTANCE`, `BATCH_JOB_EXECUTION`, `BATCH_JOB_EXECUTION_PARAMS`, `BATCH_STEP_EXECUTION`, `BATCH_STEP_EXECUTION_CONTEXT`, `BATCH_JOB_EXECUTION_CONTEXT`) and their 3 identity sequences (`BATCH_STEP_EXECUTION_SEQ`, `BATCH_JOB_EXECUTION_SEQ`, `BATCH_JOB_INSTANCE_SEQ`).
+- **Note**: Lives in the `dbo` schema, not `CAMT`. DDL is taken verbatim from Spring Batch 6.0.4's own `schema-sqlserver.sql` (extracted from the resolved `spring-batch-core` jar), not hand-written.
+- **Validates**: All tables and sequences exist
+
 ### 98-drop-quartz.sql
 - **Action**: Drops all Quartz (`QRTZ_*`) foreign keys and tables from the `dbo` schema. Scoped strictly to tables named `QRTZ_%`, so it can never touch unrelated `dbo` objects.
 - **Result**: All Quartz job store objects are completely removed
@@ -203,6 +219,7 @@ sqlcmd -S <server_name> -d REPORTDB -i 99-schema-quartz.sql
 
 Additionally, outside the `CAMT` schema, in `dbo`:
 - `BigIntIdList` — a table-valued parameter (TVP) type, not a table
+- The 6 Spring Batch `BATCH_*` job repository tables + 3 identity sequences (see `97-schema-batch.sql`)
 - The 11 Quartz `QRTZ_*` job store tables (see `99-schema-quartz.sql`)
 
 ### Removed Tables
@@ -224,7 +241,7 @@ If any script fails:
 
 If you need to start completely over:
 1. Ensure no data has been committed (check transaction status)
-2. Run `00-drop-all.sql` and `98-drop-quartz.sql` again to clean up (CAMT and Quartz objects respectively)
+2. Run `00-drop-all.sql`, `96-drop-batch.sql`, and `98-drop-quartz.sql` again to clean up (CAMT, Spring Batch, and Quartz objects respectively)
 3. Start from Script 01
 
 ## Post-Deployment Verification
@@ -235,6 +252,11 @@ After all scripts complete successfully:
 Should have 15 tables in CAMT schema:
 ```sql
 SELECT COUNT(*) FROM sys.tables WHERE SCHEMA_NAME(schema_id) = 'CAMT';
+```
+
+Should also have 6 Spring Batch tables in `dbo`:
+```sql
+SELECT COUNT(*) FROM sys.tables WHERE SCHEMA_NAME(schema_id) = 'dbo' AND name LIKE 'BATCH[_]%';
 ```
 
 Should also have 11 Quartz tables in `dbo`:
@@ -326,6 +348,8 @@ db/
 ├── 06-schema-audit-deadletter.sql
 ├── 07-schema-fetch-config.sql
 ├── 08-seed-data.sql
+├── 96-drop-batch.sql
+├── 97-schema-batch.sql
 ├── 98-drop-quartz.sql
 ├── 99-schema-quartz.sql
 └── README.md
@@ -335,6 +359,7 @@ db/
 For issues with these scripts, contact your database administrator or development team.
 
 ## Version History
+- **2026-07-11 (latest)**: Added `96-drop-batch.sql` / `97-schema-batch.sql` (Spring Batch `JobRepository` metadata tables + sequences, Phase 4 batch pipeline), numbered ahead of Quartz's `98`/`99` pair so both non-CAMT drop/create pairs sit together at the end of the chain, wired into `compose.yaml`
 - **2026-07-11 (later)**: Added `08-seed-data.sql`, wired into the automated `compose.yaml` init chain
   - Retires the old top-level `infra/docker/init-scripts/02-seed.sql`, which had been orphaned from the init chain during the `db/` restructure
   - Section A: 2 happy-path scenarios (same data as the old seed script)

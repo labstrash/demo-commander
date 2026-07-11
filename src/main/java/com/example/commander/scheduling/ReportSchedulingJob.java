@@ -3,21 +3,30 @@ package com.example.commander.scheduling;
 import com.example.commander.domain.ReportFrequency;
 import com.example.commander.domain.ReportWindow;
 import com.example.commander.domain.ReportingPeriodCalculator;
-import com.example.commander.service.ScheduledConfigReader;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.List;
 import org.quartz.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.batch.core.job.JobExecution;
+import org.springframework.batch.core.job.parameters.JobParameters;
+import org.springframework.batch.core.job.parameters.JobParametersBuilder;
+import org.springframework.batch.core.launch.JobInstanceAlreadyCompleteException;
+import org.springframework.batch.core.launch.JobOperator;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.stereotype.Component;
 
 /**
  * Quartz job that executes report generation for a specific report type and frequency.
  *
- * <p>Retrieves scheduling parameters from the job and trigger data maps, calculates
- * the reporting window using {@link ReportingPeriodCalculator}, and prepares the
- * window for downstream processing (e.g., Spring Batch, MQ, audit).
+ * <p>Retrieves scheduling parameters from the job and trigger data maps, calculates the
+ * reporting window using {@link ReportingPeriodCalculator}, and launches the Spring Batch
+ * {@code reportPipelineJob} synchronously via {@link JobOperator#start}, blocking until
+ * that job finishes. Synchronous (not async) so Quartz's own misfire/next-fire-time
+ * bookkeeping stays tied to real completion, and so {@code @DisallowConcurrentExecution}
+ * keeps meaning what it says.
  *
  * <p>Uses {@code useProperties=true} in Quartz configuration, so all job data keys
  * must be strings.
@@ -43,13 +52,32 @@ public class ReportSchedulingJob implements Job {
     /** Job data key for window sequence number (0-based). */
     public static final String KEY_WINDOW_SEQUENCE = "windowSequence";
 
+    // BATCH_JOB_INSTANCE is a shared table across every report type/frequency combination,
+    // so concurrent firings (several triggers landing in the same second - routine under
+    // the local dev profile's collapsed-to-every-minute schedules, and possible in
+    // production too) can hit a genuine SQL Server deadlock on the INSERT. SQL Server's own
+    // error text says it plainly: "chosen as the deadlock victim... Rerun the transaction."
+    // Safe to retry from scratch either way: a deadlock during createJobInstance means
+    // nothing committed, and a deadlock later mid-step just leaves a FAILED JobInstance that
+    // JobOperator.start() with the same JobParameters resumes via normal restart semantics.
+    private static final int MAX_LAUNCH_ATTEMPTS = 3;
+    private static final Duration LAUNCH_RETRY_BACKOFF = Duration.ofMillis(250);
+
     private final ReportingPeriodCalculator reportingPeriodCalculator;
-    private final ScheduledConfigReader configReader;
+    private final JobOperator jobOperator;
+
+    // Fully qualified: this class already implements org.quartz.Job, so the Spring Batch
+    // Job type (also just named "Job") can't be imported unqualified without an
+    // ambiguous-import compile error.
+    private final org.springframework.batch.core.job.Job reportPipelineJob;
 
     public ReportSchedulingJob(
-            ReportingPeriodCalculator reportingPeriodCalculator, ScheduledConfigReader configReader) {
+            ReportingPeriodCalculator reportingPeriodCalculator,
+            JobOperator jobOperator,
+            org.springframework.batch.core.job.Job reportPipelineJob) {
         this.reportingPeriodCalculator = reportingPeriodCalculator;
-        this.configReader = configReader;
+        this.jobOperator = jobOperator;
+        this.reportPipelineJob = reportPipelineJob;
     }
 
     /**
@@ -96,26 +124,76 @@ public class ReportSchedulingJob implements Job {
                     window.windowStartUtc(),
                     window.windowEndUtc());
 
-            // Phase 1: read + assemble + fan-out only (no publish/audit yet).
-            ScheduledConfigReader.ReadSummary summary = configReader.readAssembleAndFanOut(
-                    reportType, frequencyStr, window.windowStartUtc(), window.windowEndUtc());
+            // Window boundaries are already unique per firing, so JobParameters double as a
+            // free double-fire guard: Spring Batch refuses to create a new JobInstance for
+            // parameters that already completed successfully.
+            JobParameters jobParameters = new JobParametersBuilder()
+                    .addString("reportType", reportType)
+                    .addString("reportFrequency", frequencyStr)
+                    .addJobParameter("windowStartUtc", window.windowStartUtc(), Instant.class)
+                    .addJobParameter("windowEndUtc", window.windowEndUtc(), Instant.class)
+                    .toJobParameters();
+
+            JobExecution jobExecution = startWithDeadlockRetry(jobParameters);
+
+            log.info(
+                    "Job completed successfully: reportType={}, frequency={}, status={}",
+                    reportType,
+                    frequency,
+                    jobExecution.getStatus());
 
             // TODO: Integrate with downstream processing:
-            // - Phase 4: Spring Batch pipeline
             // - Phase 5: Message queue publication
             // - Phase 6: Audit record creation
 
+        } catch (JobInstanceAlreadyCompleteException e) {
+            // Expected/benign: the same (reportType, reportFrequency, window) already ran to
+            // completion - most likely a Quartz misfire double-trigger. Must be caught before
+            // the general Exception catch below, or a correctly-skipped duplicate firing would
+            // be logged/alerted on as a real job failure.
             log.info(
-                    "Job completed successfully: reportType={}, frequency={}, configsRead={}, messagesAssembled={}",
+                    "Skipping duplicate firing: reportType={}, frequency={}, fireTime={} already completed",
                     reportType,
                     frequency,
-                    summary.treeCount(),
-                    summary.messageCount());
-
+                    fireTime);
         } catch (Exception e) {
             log.error("Job failed: reportType={}, frequency={}, fireTime={}", reportType, frequency, fireTime, e);
             throw new JobExecutionException(
                     "Report scheduling job failed for " + reportType + "/" + frequency, e, false);
+        }
+    }
+
+    /**
+     * Launches {@code reportPipelineJob}, retrying a bounded number of times on a transient
+     * data-access failure (e.g. a SQL Server deadlock on {@code BATCH_JOB_INSTANCE}). Does
+     * not retry {@link JobInstanceAlreadyCompleteException} or any other checked exception
+     * from {@link JobOperator#start} - those propagate immediately, unchanged.
+     */
+    private JobExecution startWithDeadlockRetry(JobParameters jobParameters) throws Exception {
+        TransientDataAccessException lastFailure = null;
+        for (int attempt = 1; attempt <= MAX_LAUNCH_ATTEMPTS; attempt++) {
+            try {
+                return jobOperator.start(reportPipelineJob, jobParameters);
+            } catch (TransientDataAccessException e) {
+                lastFailure = e;
+                log.warn(
+                        "Transient failure launching reportPipelineJob (attempt {}/{}): {}",
+                        attempt,
+                        MAX_LAUNCH_ATTEMPTS,
+                        e.getMessage());
+                if (attempt < MAX_LAUNCH_ATTEMPTS) {
+                    sleepBeforeRetry();
+                }
+            }
+        }
+        throw lastFailure;
+    }
+
+    private static void sleepBeforeRetry() {
+        try {
+            Thread.sleep(LAUNCH_RETRY_BACKOFF.toMillis());
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
         }
     }
 }

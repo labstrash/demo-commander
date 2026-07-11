@@ -18,8 +18,23 @@ repositories {
 	mavenCentral()
 }
 
+sourceSets {
+	integrationTest {
+		java.srcDir 'src/integrationTest/java'
+		resources.srcDir 'src/integrationTest/resources'
+		compileClasspath += sourceSets.main.output + sourceSets.test.output
+		runtimeClasspath += sourceSets.main.output + sourceSets.test.output
+	}
+}
+
+configurations {
+	integrationTestImplementation.extendsFrom testImplementation
+	integrationTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'org.springframework.boot:spring-boot-starter-batch-jdbc'
 	implementation 'org.springframework.boot:spring-boot-starter-jdbc'
 	implementation 'org.springframework.boot:spring-boot-starter-quartz'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
@@ -36,6 +51,19 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+// Integration tests require a real SQL Server reachable at the connection settings in
+// src/integrationTest/resources/application.properties - start it first with:
+//   docker-compose -f infra/docker/compose.yaml up --remove-orphans sqlserver sqlserver-init
+// Deliberately not wired into `check` since it depends on that external, already-initialized DB.
+tasks.register('integrationTest', Test) {
+	description = 'Runs integration tests against a real SQL Server (requires docker-compose sqlserver up).'
+	group = 'verification'
+	testClassesDirs = sourceSets.integrationTest.output.classesDirs
+	classpath = sourceSets.integrationTest.runtimeClasspath
+	useJUnitPlatform()
+	shouldRunAfter test
 }
 
 // Spotless
@@ -57,3 +85,4 @@ spotless {
 
 tasks.compileJava.dependsOn(spotlessApply)
 tasks.compileTestJava.dependsOn(spotlessApply)
+tasks.compileIntegrationTestJava.dependsOn(spotlessApply)
