@@ -37,8 +37,9 @@ Execute the scripts in the following order:
 | 6 | `05-schema-report.sql` | Creates report configuration tables: ReportConfig, ReportAgreementScope |
 | 7 | `06-schema-audit-deadletter.sql` | Creates DeadLetterMessage and ReportCommandAudit tables |
 | 8 | `07-schema-fetch-config.sql` | Creates the `dbo.BigIntIdList` table type for id-set query parameters |
-| 9 | `98-drop-quartz.sql` | **CLEANUP**: Drops all Quartz (`QRTZ_*`) job store objects |
-| 10 | `99-schema-quartz.sql` | Creates the Quartz JDBC job store tables, foreign keys, and indexes |
+| 9 | `08-seed-data.sql` | Seeds demo/dev data: 2 happy-path scenarios plus 3 fetch-config read-path edge cases (zero-scope config, dangling PTA, multi-scope fan-in) |
+| 10 | `98-drop-quartz.sql` | **CLEANUP**: Drops all Quartz (`QRTZ_*`) job store objects |
+| 11 | `99-schema-quartz.sql` | Creates the Quartz JDBC job store tables, foreign keys, and indexes |
 
 `98`/`99` are numbered out of sequence deliberately: Quartz is unrelated to the CAMT schema, so keeping its drop/create pair at the end leaves room to add more CAMT-related scripts (08, 09, ...) without renumbering.
 
@@ -60,6 +61,7 @@ sqlcmd -S <server_name> -d REPORTDB -i 04-schema-scope.sql
 sqlcmd -S <server_name> -d REPORTDB -i 05-schema-report.sql
 sqlcmd -S <server_name> -d REPORTDB -i 06-schema-audit-deadletter.sql
 sqlcmd -S <server_name> -d REPORTDB -i 07-schema-fetch-config.sql
+sqlcmd -S <server_name> -d REPORTDB -i 08-seed-data.sql
 sqlcmd -S <server_name> -d REPORTDB -i 98-drop-quartz.sql
 sqlcmd -S <server_name> -d REPORTDB -i 99-schema-quartz.sql
 ```
@@ -68,7 +70,7 @@ sqlcmd -S <server_name> -d REPORTDB -i 99-schema-quartz.sql
 ```powershell
 $server = "your_server_name"
 $database = "REPORTDB"
-$scripts = @("00-drop-all.sql", "01-schema-reference.sql", "02-schema-sequence.sql", "03-schema-agreement.sql", "04-schema-scope.sql", "05-schema-report.sql", "06-schema-audit-deadletter.sql", "07-schema-fetch-config.sql", "98-drop-quartz.sql", "99-schema-quartz.sql")
+$scripts = @("00-drop-all.sql", "01-schema-reference.sql", "02-schema-sequence.sql", "03-schema-agreement.sql", "04-schema-scope.sql", "05-schema-report.sql", "06-schema-audit-deadletter.sql", "07-schema-fetch-config.sql", "08-seed-data.sql", "98-drop-quartz.sql", "99-schema-quartz.sql")
 
 foreach ($script in $scripts) {
     Write-Host "Executing $script..."
@@ -91,6 +93,7 @@ sqlcmd -S <server_name> -d REPORTDB -i 04-schema-scope.sql && \
 sqlcmd -S <server_name> -d REPORTDB -i 05-schema-report.sql && \
 sqlcmd -S <server_name> -d REPORTDB -i 06-schema-audit-deadletter.sql && \
 sqlcmd -S <server_name> -d REPORTDB -i 07-schema-fetch-config.sql && \
+sqlcmd -S <server_name> -d REPORTDB -i 08-seed-data.sql && \
 sqlcmd -S <server_name> -d REPORTDB -i 98-drop-quartz.sql && \
 sqlcmd -S <server_name> -d REPORTDB -i 99-schema-quartz.sql
 ```
@@ -104,42 +107,42 @@ sqlcmd -S <server_name> -d REPORTDB -i 99-schema-quartz.sql
 
 ### 01-schema-reference.sql
 - **Creates**:
-    - `CAMT` schema
-    - `ReportType` reference table
-    - `PaymentType` reference table
-    - `ReportFrequency` reference table
+  - `CAMT` schema
+  - `ReportType` reference table
+  - `PaymentType` reference table
+  - `ReportFrequency` reference table
 - **Inserts**: Seed data for all three reference tables
 - **Validates**: Row counts in reference tables
 
 ### 02-schema-sequence.sql
 - **Creates**:
-    - `AgreementSequence` table (per-engagement ID generation)
-    - `GetNextAgreementSequence` stored procedure (with UPDLOCK/SERIALIZABLE for concurrency)
+  - `AgreementSequence` table (per-engagement ID generation)
+  - `GetNextAgreementSequence` stored procedure (with UPDLOCK/SERIALIZABLE for concurrency)
 - **Tests**: Sequence generation with sample engagement ID
 - **Validates**: Both objects exist and work correctly
 
 ### 03-schema-agreement.sql
 - **Creates**:
-    - `Recipient` (shared delivery endpoint lookup)
-    - `Agreement` (master agreement records)
-    - `AgreementContact` (contact information)
-    - `AgreementVersion` (agreement lifecycle management)
+  - `Recipient` (shared delivery endpoint lookup)
+  - `Agreement` (master agreement records)
+  - `AgreementContact` (contact information)
+  - `AgreementVersion` (agreement lifecycle management)
 - **Indexes**: Filtered unique indexes for active/pending versions
 - **Validates**: All tables exist
 
 ### 04-schema-scope.sql
 - **Creates**:
-    - `AgreementScope` (defines what and where to report)
-    - `PaymentTypeAssignment` (payment types covered)
-    - `AccountAssignment` (bank account details)
-    - `AliasAssignment` (alternative identifiers)
+  - `AgreementScope` (defines what and where to report)
+  - `PaymentTypeAssignment` (payment types covered)
+  - `AccountAssignment` (bank account details)
+  - `AliasAssignment` (alternative identifiers)
 - **Indexes**: All necessary indexes for performance
 - **Validates**: Tables exist and foreign keys are enabled
 
 ### 05-schema-report.sql
 - **Creates**:
-    - `ReportConfig` (report generation configuration)
-    - `ReportAgreementScope` (mapping configs to scopes)
+  - `ReportConfig` (report generation configuration)
+  - `ReportAgreementScope` (mapping configs to scopes)
 - **Constraints**: Check constraint ensuring active configs have ConfigId
 - **Indexes**: Filtered unique index for ConfigId; composite index (ReportType, ReportFrequency, IsActive) for the scheduled fetch path
 - **Validates**: All tables and foreign keys
@@ -147,8 +150,8 @@ sqlcmd -S <server_name> -d REPORTDB -i 99-schema-quartz.sql
 
 ### 06-schema-audit-deadletter.sql
 - **Creates**:
-    - `DeadLetterMessage` (messages that failed MQ delivery)
-    - `ReportCommandAudit` (audit trail of all ReportCommand messages sent, including rejection-audit rows with no resolved config/scope)
+  - `DeadLetterMessage` (messages that failed MQ delivery)
+  - `ReportCommandAudit` (audit trail of all ReportCommand messages sent, including rejection-audit rows with no resolved config/scope)
 - **Indexes**: Retry lookup index on DeadLetterMessage; message/config/type/status/sent-at/job-execution indexes on ReportCommandAudit
 - **Validates**: Both tables exist
 
@@ -156,6 +159,15 @@ sqlcmd -S <server_name> -d REPORTDB -i 99-schema-quartz.sql
 - **Creates**: `dbo.BigIntIdList` — a table-valued parameter (TVP) type used to pass id-sets into fetch queries. Must match `TvpParameterSource.BIGINT_ID_LIST_TYPE` exactly.
 - **Note**: Lives in the `dbo` schema, not `CAMT`.
 - **Validates**: Type exists
+
+### 08-seed-data.sql
+- **Section A (happy path)**: 2 ordinary agreements, each with one scope, one payment-type assignment, and one funded account — the everyday case the fetch/assembly path spends most of its time on.
+- **Section B (edge cases)**: exercises the three tree-assembly edge cases the fetch/assembly read path has to handle correctly (mirrors `ReportConfigTreeAssemblerTest`):
+  - **B.1 zero-scope config** — a `ReportConfig` with no `ReportAgreementScope` rows at all
+  - **B.2 dangling PTA** — a `PaymentTypeAssignment` with neither accounts nor aliases underneath it
+  - **B.3 multi-scope fan-in** — one `ReportConfig` reached via scopes on two separate agreements
+- **No idempotency guards**: consistent with the rest of this directory, since `00-drop-all.sql` always runs first
+- **Validates**: row counts across all seeded tables; asserts the zero-scope config really has zero scopes and the fan-in config really has exactly two
 
 ### 98-drop-quartz.sql
 - **Action**: Drops all Quartz (`QRTZ_*`) foreign keys and tables from the `dbo` schema. Scoped strictly to tables named `QRTZ_%`, so it can never touch unrelated `dbo` objects.
@@ -313,6 +325,7 @@ db/
 ├── 05-schema-report.sql
 ├── 06-schema-audit-deadletter.sql
 ├── 07-schema-fetch-config.sql
+├── 08-seed-data.sql
 ├── 98-drop-quartz.sql
 ├── 99-schema-quartz.sql
 └── README.md
@@ -322,16 +335,20 @@ db/
 For issues with these scripts, contact your database administrator or development team.
 
 ## Version History
+- **2026-07-11 (later)**: Added `08-seed-data.sql`, wired into the automated `compose.yaml` init chain
+  - Retires the old top-level `infra/docker/init-scripts/02-seed.sql`, which had been orphaned from the init chain during the `db/` restructure
+  - Section A: 2 happy-path scenarios (same data as the old seed script)
+  - Section B: 3 fetch-config edge cases — zero-scope config, dangling PTA, multi-scope fan-in — mirroring `ReportConfigTreeAssemblerTest`
 - **2026-07-11**: Added audit/dead-letter tables, fetch-config support, and Quartz job store
-    - Added `06-schema-audit-deadletter.sql` (DeadLetterMessage, ReportCommandAudit)
-    - Added `07-schema-fetch-config.sql` (dbo.BigIntIdList TVP type)
-    - Added composite index `IX_ReportConfig_TypeFrequencyActive` to `05-schema-report.sql`
-    - Added `98-drop-quartz.sql` / `99-schema-quartz.sql` (Quartz JDBC job store, numbered out of sequence since it's unrelated to the CAMT schema)
-    - `00-drop-all.sql` now also drops `dbo.BigIntIdList`
+  - Added `06-schema-audit-deadletter.sql` (DeadLetterMessage, ReportCommandAudit)
+  - Added `07-schema-fetch-config.sql` (dbo.BigIntIdList TVP type)
+  - Added composite index `IX_ReportConfig_TypeFrequencyActive` to `05-schema-report.sql`
+  - Added `98-drop-quartz.sql` / `99-schema-quartz.sql` (Quartz JDBC job store, numbered out of sequence since it's unrelated to the CAMT schema)
+  - `00-drop-all.sql` now also drops `dbo.BigIntIdList`
 - **2026-07-10**: Initial clean deployment scripts
-    - Removed `ReportTypeFrequency` table (unused)
-    - Removed all idempotency checks (`IF NOT EXISTS`)
-    - Replaced `MERGE` statements with `INSERT` for seed data
-    - Added comprehensive logging and transaction handling
-    - Organized into 6 logical groups with execution order
-    - Added `00-drop-all.sql` for complete cleanup
+  - Removed `ReportTypeFrequency` table (unused)
+  - Removed all idempotency checks (`IF NOT EXISTS`)
+  - Replaced `MERGE` statements with `INSERT` for seed data
+  - Added comprehensive logging and transaction handling
+  - Organized into 6 logical groups with execution order
+  - Added `00-drop-all.sql` for complete cleanup

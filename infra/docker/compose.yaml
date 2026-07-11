@@ -80,6 +80,7 @@ services:
         /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -i /init-scripts/db/05-schema-report.sql -C &&
         /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -i /init-scripts/db/06-schema-audit-deadletter.sql -C &&
         /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -i /init-scripts/db/07-schema-fetch-config.sql -C &&
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -i /init-scripts/db/08-seed-data.sql -C &&
         /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -i /init-scripts/db/98-drop-quartz.sql -C &&
         /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong!Passw0rd' -b -i /init-scripts/db/99-schema-quartz.sql -C &&
         echo 'All init scripts completed successfully.'
