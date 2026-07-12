@@ -10,6 +10,7 @@ import java.util.List;
 import org.quartz.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.batch.core.BatchStatus;
 import org.springframework.batch.core.job.JobExecution;
 import org.springframework.batch.core.job.parameters.JobParameters;
 import org.springframework.batch.core.job.parameters.JobParametersBuilder;
@@ -57,9 +58,12 @@ public class ReportSchedulingJob implements Job {
     // the local dev profile's collapsed-to-every-minute schedules, and possible in
     // production too) can hit a genuine SQL Server deadlock on the INSERT. SQL Server's own
     // error text says it plainly: "chosen as the deadlock victim... Rerun the transaction."
-    // Safe to retry from scratch either way: a deadlock during createJobInstance means
-    // nothing committed, and a deadlock later mid-step just leaves a FAILED JobInstance that
-    // JobOperator.start() with the same JobParameters resumes via normal restart semantics.
+    // This only covers deadlocks during JobInstance/JobExecution creation, before any step
+    // runs - that's the sole point where a transient failure is thrown directly out of
+    // start() rather than being absorbed into a normally-returned FAILED JobExecution (a
+    // mid-step failure never reaches this catch; it comes back via getStatus() == FAILED,
+    // handled by the status check below instead). Safe to retry from scratch: SQL Server
+    // rolls back the deadlock victim's transaction, so nothing was committed yet.
     private static final int MAX_LAUNCH_ATTEMPTS = 3;
     private static final Duration LAUNCH_RETRY_BACKOFF = Duration.ofMillis(250);
 
@@ -135,6 +139,16 @@ public class ReportSchedulingJob implements Job {
                     .toJobParameters();
 
             JobExecution jobExecution = startWithDeadlockRetry(jobParameters);
+
+            // JobOperator.start() is synchronous but only throws for launch-time problems
+            // (already-running, already-complete, invalid params). A genuine step failure
+            // doesn't propagate out of start() at all - it comes back as a normally-returned
+            // JobExecution with BatchStatus.FAILED, so that has to be checked explicitly or
+            // Quartz sees no exception and treats a failed pipeline run as a successful firing.
+            if (jobExecution.getStatus() != BatchStatus.COMPLETED) {
+                throw new IllegalStateException("reportPipelineJob did not complete successfully for " + reportType
+                        + "/" + frequencyStr + ": status=" + jobExecution.getStatus());
+            }
 
             log.info(
                     "Job completed successfully: reportType={}, frequency={}, status={}",
