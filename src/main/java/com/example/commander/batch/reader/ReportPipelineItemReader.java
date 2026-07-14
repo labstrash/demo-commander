@@ -28,9 +28,10 @@ import org.springframework.stereotype.Component;
  * messages — replacing the inline loop previously in {@code ScheduledConfigReader}.
  *
  * <p>Chunk boundaries (commit-interval) are message-sized, not tree- or page-sized (see
- * the Phase 4 batch pipeline guide, Decision 2), so a page's messages may span multiple
- * chunks. This reader buffers a page's trees, grouped per-tree, and serves items out of
- * that buffer via {@link #read()}, fetching the next page only once the buffer drains.
+ * the batch pipeline implementation guide, Decision 2), so a page's messages may span
+ * multiple chunks. This reader buffers a page's trees, grouped per-tree, and serves items
+ * out of that buffer via {@link #read()}, fetching the next page only once the buffer
+ * drains.
  *
  * <h2>Checkpoint: tree completion, tracked in drain order</h2>
  *
@@ -49,8 +50,9 @@ import org.springframework.stereotype.Component;
  * buffered items, only to genuinely empty ones.
  *
  * <p>This is an efficiency optimization on restart, not the mechanism that prevents
- * duplicate sends — that's Phase 6's audit dedup. A tree interrupted mid-drain may have
- * some of its messages re-emitted after restart, bounded by at most one tree's worth.
+ * duplicate sends — that's the responsibility of future audit dedup logic. A tree
+ * interrupted mid-drain may have some of its messages re-emitted after restart, bounded by
+ * at most one tree's worth.
  */
 @Component
 @StepScope

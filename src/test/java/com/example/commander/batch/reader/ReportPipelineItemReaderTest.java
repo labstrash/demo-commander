@@ -25,8 +25,8 @@ import org.springframework.batch.infrastructure.item.ExecutionContext;
 /**
  * Unit tests for {@link ReportPipelineItemReader}'s paging, drain-order checkpoint, and
  * zero-fan-out eager-fold behavior — the reader logic ported from {@code
- * ScheduledConfigReader}, plus the new {@code ItemStream} checkpoint semantics (Phase 4
- * batch pipeline guide, Decision 7 / §8).
+ * ScheduledConfigReader}, plus the new {@code ItemStream} checkpoint semantics (batch
+ * pipeline implementation guide, Decision 7 / §8).
  *
  * <p>{@link FanOutAssemblyService} is real (pure Java, no DB dependency); only the
  * repository is mocked, matching the DB-adjacent-but-not-DB-hitting pattern used

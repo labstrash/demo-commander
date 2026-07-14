@@ -16,9 +16,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestPropertySource;
 
 /**
- * Verifies message-count chunking (Phase 4 batch pipeline guide, Decision 2): a single
- * bundled config's fan-out messages correctly span/close chunks at the message-count
- * boundary, not the tree boundary.
+ * Verifies message-count chunking (batch pipeline implementation guide, Decision 2): a
+ * single bundled config's fan-out messages correctly span/close chunks at the
+ * message-count boundary, not the tree boundary.
  *
  * <p>Uses the {@code 08-seed-data.sql} B.3 multi-scope fan-in fixture (ConfigId 10000103,
  * report type {@code CAMT052BT} / frequency {@code ONE_TIME_PER_DAY}), whose single

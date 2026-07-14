@@ -17,8 +17,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 /**
- * Verifies the double-fire guard (Phase 4 batch pipeline guide, Decision 5 / §7 / §10):
- * launching the same {@code JobParameters} twice must not create a second
+ * Verifies the double-fire guard (batch pipeline implementation guide, Decision 5 / §7 /
+ * §10): launching the same {@code JobParameters} twice must not create a second
  * {@code JobInstance}/{@code JobExecution}, and the second {@code JobOperator.start()} call
  * must throw {@link JobInstanceAlreadyCompleteException} rather than silently no-op or
  * corrupt state.

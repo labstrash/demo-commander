@@ -8,9 +8,9 @@ import org.springframework.batch.infrastructure.item.ItemWriter;
 import org.springframework.stereotype.Component;
 
 /**
- * Logging-only writer stub — Phase 5 (MQ) / Phase 6 (audit) replace this bean, not the
- * interface or step configuration. Step definition and chunk/transaction wiring are final
- * as of Phase 4.
+ * Logging-only writer stub — a future message-queue publishing stage and a future
+ * audit-recording stage will replace this bean, not the interface or step configuration.
+ * Step definition and chunk/transaction wiring are already final.
  */
 @Component
 public class LoggingReportMessageWriter implements ItemWriter<OutboundReportMessage> {

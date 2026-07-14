@@ -11,13 +11,13 @@ import java.util.Optional;
  * business keys. This is separate from {@link ConfigurationReadRepository}
  * which handles staged hierarchical reads for batch processing.
  *
- * <p><b>Ahead of the current phase:</b> the on-demand read path is its own phase, not yet
+ * <p><b>Ahead of current scope:</b> the on-demand read path is its own body of work, not yet
  * designed as its own guide, and this branch's scope is the scheduled path's fetch/assembly
  * logic only. This interface is not called from anywhere in the scheduled path — it was
  * added early, anticipating the on-demand path's needs, and bakes in a lookup contract
  * (single row per {@code messageRecipientId} + {@code reportType}) that hasn't been through
  * this team's usual decision-log process yet. Confirm this shape with the team before
- * building on top of it, or move it out to its own branch/PR when that phase is actually
+ * building on top of it, or move it out to its own branch/PR when that work is actually
  * picked up.
  */
 public interface ReportConfigLookupRepository {

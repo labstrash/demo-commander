@@ -157,8 +157,8 @@ public class ReportSchedulingJob implements Job {
                     jobExecution.getStatus());
 
             // TODO: Integrate with downstream processing:
-            // - Phase 5: Message queue publication
-            // - Phase 6: Audit record creation
+            // - Message queue publication
+            // - Audit record creation
 
         } catch (JobInstanceAlreadyCompleteException e) {
             // Expected/benign: the same (reportType, reportFrequency, window) already ran to
