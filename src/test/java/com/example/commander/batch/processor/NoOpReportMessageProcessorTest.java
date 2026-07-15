@@ -28,8 +28,6 @@ class NoOpReportMessageProcessorTest {
                 TriggerType.SCHEDULED,
                 new RecipientRef(999L, "UNRESOLVED", "UNRESOLVED", "UNRESOLVED"),
                 List.of(),
-                List.of(),
-                0,
                 null);
 
         assertThat(processor.process(message)).isSameAs(message);

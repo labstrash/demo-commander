@@ -29,8 +29,6 @@ class LoggingReportMessageWriterTest {
                 TriggerType.SCHEDULED,
                 new RecipientRef(999L, "UNRESOLVED", "UNRESOLVED", "UNRESOLVED"),
                 List.of(),
-                List.of(),
-                0,
                 null);
 
         assertThatCode(() -> writer.write(new Chunk<>(message))).doesNotThrowAnyException();

@@ -8,9 +8,14 @@ import com.example.commander.domain.config.ReportConfigRow;
 import com.example.commander.domain.config.ReportConfigTree;
 import com.example.commander.domain.message.MessageAssemblyContext;
 import com.example.commander.domain.message.OutboundReportMessage;
+import com.example.commander.domain.message.PaymentTypeAllocation;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /**
@@ -61,26 +66,39 @@ public class FanOutAssemblyService {
     }
 
     private OutboundReportMessage configOnlyMessage(ReportConfigTree tree, MessageAssemblyContext context) {
-        return newMessage(tree, context, NO_SINGLE_SCOPE_SENTINEL, List.of(), List.of(), 0);
+        return newMessage(tree, context, NO_SINGLE_SCOPE_SENTINEL, List.of());
     }
 
     private OutboundReportMessage bundledMessage(ReportConfigTree tree, MessageAssemblyContext context) {
-        List<AccountAssignmentRow> mergedAccounts = new ArrayList<>();
-        List<AliasAssignmentRow> mergedAliases = new ArrayList<>();
-        int paymentTypeCount = 0;
+        // LinkedHashMap: preserves first-seen payment type order across scopes for stable output.
+        Map<String, List<AccountAssignmentRow>> accountsByType = new LinkedHashMap<>();
+        Map<String, List<AliasAssignmentRow>> aliasesByType = new LinkedHashMap<>();
 
         for (AgreementScopeNode scope : tree.scopes()) {
             for (PaymentTypeAssignmentNode assignment : scope.paymentTypeAssignments()) {
-                if (assignment.isEmpty()) {
-                    continue;
+                if (assignment.isAccountAssignment()) {
+                    accountsByType
+                            .computeIfAbsent(assignment.paymentType(), key -> new ArrayList<>())
+                            .addAll(assignment.accounts());
+                } else if (assignment.isAliasAssignment()) {
+                    aliasesByType
+                            .computeIfAbsent(assignment.paymentType(), key -> new ArrayList<>())
+                            .addAll(assignment.aliases());
                 }
-                paymentTypeCount++;
-                mergedAccounts.addAll(assignment.accounts());
-                mergedAliases.addAll(assignment.aliases());
             }
         }
 
-        return newMessage(tree, context, NO_SINGLE_SCOPE_SENTINEL, mergedAccounts, mergedAliases, paymentTypeCount);
+        Set<String> paymentTypes = new LinkedHashSet<>(accountsByType.keySet());
+        paymentTypes.addAll(aliasesByType.keySet());
+
+        List<PaymentTypeAllocation> allocations = paymentTypes.stream()
+                .map(paymentType -> new PaymentTypeAllocation(
+                        paymentType,
+                        accountsByType.getOrDefault(paymentType, List.of()),
+                        aliasesByType.getOrDefault(paymentType, List.of())))
+                .toList();
+
+        return newMessage(tree, context, NO_SINGLE_SCOPE_SENTINEL, allocations);
     }
 
     private List<OutboundReportMessage> unbundledMessages(ReportConfigTree tree, MessageAssemblyContext context) {
@@ -89,10 +107,14 @@ public class FanOutAssemblyService {
         for (AgreementScopeNode scope : tree.scopes()) {
             for (PaymentTypeAssignmentNode assignment : scope.paymentTypeAssignments()) {
                 for (AccountAssignmentRow account : assignment.accounts()) {
-                    messages.add(newMessage(tree, context, scope.id(), List.of(account), List.of(), 1));
+                    PaymentTypeAllocation allocation =
+                            new PaymentTypeAllocation(assignment.paymentType(), List.of(account), List.of());
+                    messages.add(newMessage(tree, context, scope.id(), List.of(allocation)));
                 }
                 for (AliasAssignmentRow alias : assignment.aliases()) {
-                    messages.add(newMessage(tree, context, scope.id(), List.of(), List.of(alias), 1));
+                    PaymentTypeAllocation allocation =
+                            new PaymentTypeAllocation(assignment.paymentType(), List.of(), List.of(alias));
+                    messages.add(newMessage(tree, context, scope.id(), List.of(allocation)));
                 }
             }
         }
@@ -104,9 +126,7 @@ public class FanOutAssemblyService {
             ReportConfigTree tree,
             MessageAssemblyContext context,
             long agreementScopeId,
-            List<AccountAssignmentRow> accounts,
-            List<AliasAssignmentRow> aliases,
-            int paymentTypeCount) {
+            List<PaymentTypeAllocation> paymentTypeAllocations) {
 
         ReportConfigRow config = tree.config();
         return new OutboundReportMessage(
@@ -121,9 +141,7 @@ public class FanOutAssemblyService {
                 config.isBundled(),
                 context.triggerType(),
                 context.recipient(),
-                accounts,
-                aliases,
-                paymentTypeCount,
+                paymentTypeAllocations,
                 context.requestorName());
     }
 }

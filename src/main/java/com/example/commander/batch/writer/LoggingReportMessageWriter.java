@@ -22,13 +22,14 @@ public class LoggingReportMessageWriter implements ItemWriter<OutboundReportMess
         log.info("Writing chunk of {} outbound report messages", chunk.size());
         for (OutboundReportMessage message : chunk) {
             log.debug(
-                    "reportConfigId={}, configId={}, agreementScopeId={}, reportType={}, accounts={}, aliases={}",
+                    "reportConfigId={}, configId={}, agreementScopeId={}, reportType={}, paymentTypes={},"
+                            + " accounts={}",
                     message.reportConfigId(),
                     message.configId(),
                     message.agreementScopeId(),
                     message.reportType(),
-                    message.accounts().size(),
-                    message.aliases().size());
+                    message.paymentTypeCount(),
+                    message.accountCount());
         }
     }
 }

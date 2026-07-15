@@ -36,6 +36,7 @@ depends on it.
 | Restart/checkpoint | Real `ItemStream` implementation, checkpointed at **tree completion**, not message or byte offset — persists a single `lastSeenId` (config ID) to the step `ExecutionContext` using Spring Batch's standard mechanism, no custom serialization. Efficiency optimization on top of Phase 6 dedup, not a correctness mechanism in its own right |
 | `JobParameters` types | Typed (`Instant` via `JobParameter<T>` — a Spring Batch 5.0 feature, not new in 6.0; corrected in Round 3), not stringified — see Round 1, Q5 |
 | Job repository metadata | Spring Batch's own `BATCH_JOB_*`/`BATCH_STEP_*` tables in SQL Server, via the explicit `spring-boot-starter-batch-jdbc` dependency (Spring Boot 4.x defaults to an in-memory, non-durable job repository otherwise) — separate schema migration from application tables |
+| Message payload — payment type | `OutboundReportMessage` carries `List<PaymentTypeAllocation>` (payment type code + its accounts + its aliases), not flat `accounts`/`aliases`/`paymentTypeCount` fields — preserves the payment-type association through bundling for the downstream Executor; see Round 4 |
 
 ---
 
@@ -459,3 +460,49 @@ matches §2's description exactly, `ReportSchedulingJob.execute()`'s
 and `OutboundReportMessage` already carries `reportConfigId` — exactly what §8's
 drain-order checkpoint needs, no domain model changes required. Everything else in the
 guide checked out cleanly against the actual branch and current framework docs.
+
+---
+
+## 15. Round 4 — Payment Type Association in the Outbound Message Payload
+
+**Problem:** The downstream Executor needs `PaymentType` alongside each account/alias it
+receives, not just a count. Before this pass, `OutboundReportMessage` exposed flat
+`accounts`/`aliases` lists plus a `paymentTypeCount` int. That shape works for the
+unbundled path (§3's "one message per account/alias row" naturally maps to one payment
+type per message), but `bundledMessage()` in `FanOutAssemblyService` merges accounts and
+aliases from *every* `PaymentTypeAssignmentNode` across *every* scope into those two flat
+lists — the payment type each row came from was discarded at merge time, even though the
+DB tree (`CAMT.PaymentTypeAssignment`) has it.
+
+**Decision:** Replace `accounts`/`aliases`/`paymentTypeCount` on `OutboundReportMessage`
+with a single `List<PaymentTypeAllocation>` field, where `PaymentTypeAllocation` is a new
+record (`paymentType`, `accounts`, `aliases`) enforcing the same account/alias
+mutual-exclusivity invariant as `PaymentTypeAssignmentNode`. `paymentTypeCount()` and
+`accountCount()` become derived methods (`paymentTypeAllocations.size()` and a sum over
+allocations) rather than a separately-tracked field, so they can't drift from the actual
+list contents.
+
+Fan-out behaviour per §3's three strategies:
+- **Config-only:** empty allocation list — unchanged behaviour, `isConfigOnly()` now
+  checks `paymentTypeAllocations.isEmpty()` instead of the old three-way check.
+- **Bundled:** `bundledMessage()` groups by payment type code across all merged scopes
+  (via a `LinkedHashMap` keyed on `paymentType`, preserving first-seen order) instead of
+  flattening into two lists — one `PaymentTypeAllocation` per distinct payment type,
+  with that type's accounts/aliases merged across scopes. This is the behavioural
+  change: a bundled message with two payment types now produces two allocations instead
+  of one pair of merged lists.
+- **Unbundled:** each message still carries exactly one account or alias, now wrapped in
+  a single-element `List<PaymentTypeAllocation>` carrying that row's payment type instead
+  of a bare list. No change in message count or lineage (§3's `agreementScopeId`
+  attribution is untouched).
+
+| | Pros | Cons |
+|---|---|---|
+| Group by payment type (`PaymentTypeAllocation`) | Executor gets an unambiguous payment-type → accounts/aliases mapping with no re-derivation; matches the mutual-exclusivity invariant already enforced one level up in `PaymentTypeAssignmentNode` | Bundled messages that merge many payment types now carry a nested structure instead of two flat lists — slightly more to deserialize downstream |
+| Tag each row with `paymentType` instead (rejected) | Smaller diff — `AccountAssignmentRow`/`AliasAssignmentRow` already carry `paymentTypeAssignmentId`, so adding a `paymentType` string is a small addition | Message payload stays flat, so the Executor has to re-group rows by `paymentType` itself; bundled messages could carry rows that look identical except for the field an implementer might overlook |
+
+**Not in scope — trigger type:** `OutboundReportMessage.triggerType` (a `TriggerType`
+enum with `SCHEDULED`/`ON_DEMAND` values) already existed prior to this pass —
+`FanOutAssemblyService` has always populated it from `MessageAssemblyContext.triggerType()`.
+No new field was needed to distinguish a Quartz-scheduled run from an on-demand request;
+this round only touched the payment-type/account/alias grouping described above.

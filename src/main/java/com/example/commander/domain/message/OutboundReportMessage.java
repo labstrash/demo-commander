@@ -1,7 +1,5 @@
 package com.example.commander.domain.message;
 
-import com.example.commander.domain.config.AccountAssignmentRow;
-import com.example.commander.domain.config.AliasAssignmentRow;
 import java.time.Instant;
 import java.util.List;
 
@@ -10,13 +8,14 @@ import java.util.List;
  *
  * <p>Each instance represents a single message to be published to the message queue,
  * containing all information needed to generate a report: configuration details,
- * window boundaries, recipient information, and account or alias data.
+ * window boundaries, recipient information, and account or alias data grouped by
+ * payment type.
  *
  * <p>Messages can be:
  * <ul>
- *   <li><b>Config-only:</b> No account/alias data (zero-scope case)</li>
- *   <li><b>Bundled:</b> Merged accounts/aliases from multiple scopes</li>
- *   <li><b>Unbundled:</b> Single account or alias from a specific scope</li>
+ *   <li><b>Config-only:</b> No payment type allocations (zero-scope case)</li>
+ *   <li><b>Bundled:</b> One allocation per distinct payment type, merged across scopes</li>
+ *   <li><b>Unbundled:</b> Single allocation with one account or alias from a specific scope</li>
  * </ul>
  *
  * @param reportConfigId surrogate ID of the report configuration
@@ -30,9 +29,7 @@ import java.util.List;
  * @param isBundled whether this message bundles multiple scopes
  * @param triggerType how the report was triggered
  * @param recipient the message recipient
- * @param accounts account assignments included in this message
- * @param aliases alias assignments included in this message
- * @param paymentTypeCount number of payment types included
+ * @param paymentTypeAllocations accounts/aliases included in this message, grouped by payment type
  * @param requestorName who initiated the request (null for scheduled)
  */
 public record OutboundReportMessage(
@@ -47,33 +44,41 @@ public record OutboundReportMessage(
         boolean isBundled,
         TriggerType triggerType,
         RecipientRef recipient,
-        List<AccountAssignmentRow> accounts,
-        List<AliasAssignmentRow> aliases,
-        int paymentTypeCount,
+        List<PaymentTypeAllocation> paymentTypeAllocations,
         String requestorName) {
 
     public OutboundReportMessage {
-        accounts = accounts == null ? List.of() : List.copyOf(accounts);
-        aliases = aliases == null ? List.of() : List.copyOf(aliases);
+        paymentTypeAllocations = paymentTypeAllocations == null ? List.of() : List.copyOf(paymentTypeAllocations);
     }
 
     /**
-     * Returns the number of account assignments in this message.
+     * Returns the number of distinct payment types included in this message.
+     *
+     * @return payment type count
+     */
+    public int paymentTypeCount() {
+        return paymentTypeAllocations.size();
+    }
+
+    /**
+     * Returns the number of account assignments in this message, across all payment types.
      *
      * @return account count
      */
     public int accountCount() {
-        return accounts.size();
+        return paymentTypeAllocations.stream()
+                .mapToInt(allocation -> allocation.accounts().size())
+                .sum();
     }
 
     /**
-     * Returns true if this message contains no account or alias data.
+     * Returns true if this message contains no payment type allocations.
      *
      * <p>Config-only messages occur for report configurations with zero scopes.
      *
-     * @return true if accounts and aliases are empty and paymentTypeCount is 0
+     * @return true if there are no payment type allocations
      */
     public boolean isConfigOnly() {
-        return accounts.isEmpty() && aliases.isEmpty() && paymentTypeCount == 0;
+        return paymentTypeAllocations.isEmpty();
     }
 }
