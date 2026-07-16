@@ -8,9 +8,14 @@ import org.springframework.batch.infrastructure.item.ItemWriter;
 import org.springframework.stereotype.Component;
 
 /**
- * Logging-only writer stub — a future message-queue publishing stage and a future
- * audit-recording stage will replace this bean, not the interface or step configuration.
- * Step definition and chunk/transaction wiring are already final.
+ * Logging-only writer, deliberately kept alongside real MQ delivery rather than replaced by
+ * it. {@link DeliverySelectionReportMessageWriter} delegates to this writer, not
+ * {@link com.example.commander.batch.config.BatchPipelineConfig} directly, so it can serve two
+ * ongoing purposes: (1) a per-report-type kill switch — a type can stay on log-only delivery
+ * independently of the others — and (2) a debug aid, giving payload visibility even while real
+ * delivery is active. Stays typed against {@code OutboundReportMessage}, not
+ * {@code PipelineReportMessage} — it only ever needs the wire payload for its debug-print
+ * purpose, never the internal {@code reportConfigId}/{@code agreementScopeId} bookkeeping.
  */
 @Component
 public class LoggingReportMessageWriter implements ItemWriter<OutboundReportMessage> {

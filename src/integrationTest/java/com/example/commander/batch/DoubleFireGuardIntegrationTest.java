@@ -17,15 +17,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 /**
- * Verifies the double-fire guard (batch pipeline implementation guide, Decision 5 / §7 /
- * §10): launching the same {@code JobParameters} twice must not create a second
- * {@code JobInstance}/{@code JobExecution}, and the second {@code JobOperator.start()} call
- * must throw {@link JobInstanceAlreadyCompleteException} rather than silently no-op or
- * corrupt state.
+ * Verifies the double-fire guard: launching the same {@code JobParameters} twice must not
+ * create a second {@code JobInstance}/{@code JobExecution}, and the second {@code
+ * JobOperator.start()} call must throw {@link JobInstanceAlreadyCompleteException} rather
+ * than silently no-op or corrupt state.
  *
- * <p>Treated as load-bearing per the guide's §7 operational caution: this exercises the
- * exact upstream subsystem (Spring Batch's {@code JobInstance} identity/signature handling)
- * flagged as new and worth verifying directly rather than assumed correct by design.
+ * <p>Treated as load-bearing: this exercises the exact upstream subsystem (Spring Batch's
+ * {@code JobInstance} identity/signature handling), worth verifying directly rather than
+ * assumed correct by design.
  *
  * <p>Uses the {@code 08-seed-data.sql} happy-path fixture (ConfigId 10000001, report type
  * {@code CAMT054C} / frequency {@code FOUR_TIMES_PER_DAY}) with a fixed window, so the same

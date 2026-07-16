@@ -4,7 +4,7 @@ import com.example.commander.config.ReadLayerProperties;
 import com.example.commander.domain.config.ReportConfigRow;
 import com.example.commander.domain.config.ReportConfigTree;
 import com.example.commander.domain.message.MessageAssemblyContext;
-import com.example.commander.domain.message.OutboundReportMessage;
+import com.example.commander.domain.message.PipelineReportMessage;
 import com.example.commander.domain.message.RecipientRef;
 import com.example.commander.domain.message.TriggerType;
 import com.example.commander.repository.ConfigurationReadRepository;
@@ -27,9 +27,9 @@ import org.springframework.stereotype.Component;
  * assembling each page into hierarchy trees and fanning each tree out into outbound
  * messages — replacing the inline loop previously in {@code ScheduledConfigReader}.
  *
- * <p>Chunk boundaries (commit-interval) are message-sized, not tree- or page-sized (see
- * the batch pipeline implementation guide, Decision 2), so a page's messages may span
- * multiple chunks. This reader buffers a page's trees, grouped per-tree, and serves items
+ * <p>Chunk boundaries (commit-interval) are message-sized, not tree- or page-sized, so a
+ * page's messages may span multiple chunks. This reader buffers a page's trees, grouped
+ * per-tree, and serves items
  * out of that buffer via {@link #read()}, fetching the next page only once the buffer
  * drains.
  *
@@ -56,7 +56,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @StepScope
-public class ReportPipelineItemReader extends AbstractItemStreamItemReader<OutboundReportMessage> {
+public class ReportPipelineItemReader extends AbstractItemStreamItemReader<PipelineReportMessage> {
 
     private static final Logger log = LoggerFactory.getLogger(ReportPipelineItemReader.class);
 
@@ -104,7 +104,7 @@ public class ReportPipelineItemReader extends AbstractItemStreamItemReader<Outbo
     }
 
     @Override
-    public OutboundReportMessage read() {
+    public PipelineReportMessage read() {
         while (pendingGroups.isEmpty() && !noMorePages) {
             fetchNextPage();
         }
@@ -114,7 +114,7 @@ public class ReportPipelineItemReader extends AbstractItemStreamItemReader<Outbo
         }
 
         TreeGroup front = pendingGroups.peekFirst();
-        OutboundReportMessage item = front.items.pollFirst();
+        PipelineReportMessage item = front.items.pollFirst();
         if (front.items.isEmpty()) {
             advanceEagerlyThroughEmptyGroups();
         }
@@ -132,7 +132,7 @@ public class ReportPipelineItemReader extends AbstractItemStreamItemReader<Outbo
 
         List<ReportConfigTree> trees = repository.assembleTrees(page);
         for (ReportConfigTree tree : trees) {
-            List<OutboundReportMessage> messages = fanOutAssemblyService.assemble(tree, contextFor(tree));
+            List<PipelineReportMessage> messages = fanOutAssemblyService.assemble(tree, contextFor(tree));
             pendingGroups.addLast(new TreeGroup(tree.config().id(), new ArrayDeque<>(messages)));
         }
         log.info(
@@ -172,5 +172,5 @@ public class ReportPipelineItemReader extends AbstractItemStreamItemReader<Outbo
                 null);
     }
 
-    private record TreeGroup(long configId, Deque<OutboundReportMessage> items) {}
+    private record TreeGroup(long configId, Deque<PipelineReportMessage> items) {}
 }

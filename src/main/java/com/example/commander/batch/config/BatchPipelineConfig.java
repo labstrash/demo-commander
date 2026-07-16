@@ -1,9 +1,9 @@
 package com.example.commander.batch.config;
 
-import com.example.commander.batch.processor.NoOpReportMessageProcessor;
+import com.example.commander.batch.processor.RecipientResolvingReportMessageProcessor;
 import com.example.commander.batch.reader.ReportPipelineItemReader;
-import com.example.commander.batch.writer.LoggingReportMessageWriter;
-import com.example.commander.domain.message.OutboundReportMessage;
+import com.example.commander.batch.writer.DeliverySelectionReportMessageWriter;
+import com.example.commander.domain.message.PipelineReportMessage;
 import java.time.Instant;
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.builder.JobBuilder;
@@ -53,11 +53,11 @@ public class BatchPipelineConfig {
             JobRepository jobRepository,
             PlatformTransactionManager transactionManager,
             ReportPipelineItemReader reader,
-            NoOpReportMessageProcessor processor,
-            LoggingReportMessageWriter writer,
+            RecipientResolvingReportMessageProcessor processor,
+            DeliverySelectionReportMessageWriter writer,
             BatchPipelineProperties properties) {
         return new StepBuilder("reportPipelineStep", jobRepository)
-                .<OutboundReportMessage, OutboundReportMessage>chunk(properties.getCommitInterval())
+                .<PipelineReportMessage, PipelineReportMessage>chunk(properties.getCommitInterval())
                 .transactionManager(transactionManager)
                 .reader(reader)
                 .processor(processor)

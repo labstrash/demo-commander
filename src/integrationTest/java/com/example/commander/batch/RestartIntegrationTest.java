@@ -2,9 +2,8 @@ package com.example.commander.batch;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.example.commander.batch.processor.NoOpReportMessageProcessor;
 import com.example.commander.batch.reader.ReportPipelineItemReader;
-import com.example.commander.domain.message.OutboundReportMessage;
+import com.example.commander.domain.message.PipelineReportMessage;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
@@ -61,7 +60,7 @@ class RestartIntegrationTest {
     @Test
     void relaunchAfterMidChunkFailureResumesAndCompletes() throws Exception {
         JobParameters jobParameters = new JobParametersBuilder()
-                .addString("reportType", "CAMT052BT")
+                .addString("reportType", "CAMT053E")
                 .addString("reportFrequency", "ONE_TIME_PER_DAY")
                 .addJobParameter("windowStartUtc", Instant.parse("2026-09-01T00:00:00Z"), Instant.class)
                 .addJobParameter("windowEndUtc", Instant.parse("2026-09-02T00:00:00Z"), Instant.class)
@@ -80,12 +79,12 @@ class RestartIntegrationTest {
     }
 
     /** A writer that fails its first call, then behaves normally on every call after. */
-    static class FlakyItemWriter implements ItemWriter<OutboundReportMessage> {
+    static class FlakyItemWriter implements ItemWriter<PipelineReportMessage> {
 
         private final AtomicBoolean hasFailedOnce = new AtomicBoolean(false);
 
         @Override
-        public void write(Chunk<? extends OutboundReportMessage> chunk) {
+        public void write(Chunk<? extends PipelineReportMessage> chunk) {
             if (hasFailedOnce.compareAndSet(false, true)) {
                 throw new RuntimeException("Simulated failure on first chunk");
             }
@@ -105,13 +104,11 @@ class RestartIntegrationTest {
                 JobRepository jobRepository,
                 PlatformTransactionManager transactionManager,
                 ReportPipelineItemReader reader,
-                NoOpReportMessageProcessor processor,
                 FlakyItemWriter flakyItemWriter) {
             return new StepBuilder("restartTestStep", jobRepository)
-                    .<OutboundReportMessage, OutboundReportMessage>chunk(1)
+                    .<PipelineReportMessage, PipelineReportMessage>chunk(1)
                     .transactionManager(transactionManager)
                     .reader(reader)
-                    .processor(processor)
                     .writer(flakyItemWriter)
                     .build();
         }

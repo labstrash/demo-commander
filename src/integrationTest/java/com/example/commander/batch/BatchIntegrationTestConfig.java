@@ -2,6 +2,7 @@ package com.example.commander.batch;
 
 import com.example.commander.batch.config.BatchPipelineProperties;
 import com.example.commander.config.ReadLayerProperties;
+import com.example.commander.mq.MqProperties;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.quartz.autoconfigure.QuartzAutoConfiguration;
@@ -24,10 +25,16 @@ import org.springframework.context.annotation.Configuration;
  * this source set's classpath — the same {@code localhost:1433} instance this repo's
  * {@code docker-compose} brings up for local dev, which must already be running and
  * initialized (through {@code 97-schema-batch.sql}) before these tests run.
+ *
+ * <p>{@link MqProperties} is registered directly (not via component-scanning
+ * {@code com.example.commander.mq}), which deliberately keeps {@code MqQueuePropertiesValidator}
+ * — an {@code ApplicationRunner} that also needs {@code SchedulingProperties}, not registered
+ * here — out of this minimal context. The real writer beans only need the queue/delivery-flag
+ * properties themselves, not that startup check.
  */
 @Configuration
 @EnableAutoConfiguration(exclude = QuartzAutoConfiguration.class)
-@EnableConfigurationProperties({ReadLayerProperties.class, BatchPipelineProperties.class})
+@EnableConfigurationProperties({ReadLayerProperties.class, BatchPipelineProperties.class, MqProperties.class})
 @ComponentScan(
         basePackages = {
             "com.example.commander.batch",

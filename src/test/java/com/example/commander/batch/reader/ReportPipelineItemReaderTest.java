@@ -11,7 +11,7 @@ import com.example.commander.domain.config.AgreementScopeNode;
 import com.example.commander.domain.config.PaymentTypeAssignmentNode;
 import com.example.commander.domain.config.ReportConfigRow;
 import com.example.commander.domain.config.ReportConfigTree;
-import com.example.commander.domain.message.OutboundReportMessage;
+import com.example.commander.domain.message.PipelineReportMessage;
 import com.example.commander.repository.ConfigurationReadRepository;
 import com.example.commander.service.FanOutAssemblyService;
 import java.time.Instant;
@@ -25,8 +25,7 @@ import org.springframework.batch.infrastructure.item.ExecutionContext;
 /**
  * Unit tests for {@link ReportPipelineItemReader}'s paging, drain-order checkpoint, and
  * zero-fan-out eager-fold behavior — the reader logic ported from {@code
- * ScheduledConfigReader}, plus the new {@code ItemStream} checkpoint semantics (batch
- * pipeline implementation guide, Decision 7 / §8).
+ * ScheduledConfigReader}, plus its {@code ItemStream} checkpoint semantics.
  *
  * <p>{@link FanOutAssemblyService} is real (pure Java, no DB dependency); only the
  * repository is mocked, matching the DB-adjacent-but-not-DB-hitting pattern used
@@ -67,9 +66,9 @@ class ReportPipelineItemReaderTest {
         when(repository.findConfigPage(REPORT_TYPE, REPORT_FREQUENCY, 2L, 2)).thenReturn(List.of(row3));
         when(repository.assembleTrees(List.of(row3))).thenReturn(List.of(zeroScopeTree(row3)));
 
-        assertThat(reader.read().configId()).isEqualTo(10000001);
-        assertThat(reader.read().configId()).isEqualTo(10000002);
-        assertThat(reader.read().configId()).isEqualTo(10000003);
+        assertThat(reader.read().payload().configId()).isEqualTo(10000001);
+        assertThat(reader.read().payload().configId()).isEqualTo(10000002);
+        assertThat(reader.read().payload().configId()).isEqualTo(10000003);
         assertThat(reader.read()).isNull();
 
         ExecutionContext checkpoint = new ExecutionContext();
@@ -116,9 +115,9 @@ class ReportPipelineItemReaderTest {
         when(repository.assembleTrees(List.of(zero1, zero2, real)))
                 .thenReturn(List.of(zeroFanOutTree(zero1), zeroFanOutTree(zero2), zeroScopeTree(real)));
 
-        OutboundReportMessage message = reader.read();
+        PipelineReportMessage message = reader.read();
 
-        assertThat(message.configId()).isEqualTo(10000030);
+        assertThat(message.payload().configId()).isEqualTo(10000030);
 
         ExecutionContext checkpoint = new ExecutionContext();
         reader.update(checkpoint);
@@ -141,7 +140,7 @@ class ReportPipelineItemReaderTest {
         when(repository.assembleTrees(List.of(first, zero, last)))
                 .thenReturn(List.of(zeroScopeTree(first), zeroFanOutTree(zero), zeroScopeTree(last)));
 
-        assertThat(reader.read().configId()).isEqualTo(10000010);
+        assertThat(reader.read().payload().configId()).isEqualTo(10000010);
 
         ExecutionContext afterFirstRead = new ExecutionContext();
         reader.update(afterFirstRead);
@@ -149,7 +148,7 @@ class ReportPipelineItemReaderTest {
                 .describedAs("the zero-fan-out tree right after the drained one must fold in immediately")
                 .isEqualTo(20L);
 
-        assertThat(reader.read().configId()).isEqualTo(10000030);
+        assertThat(reader.read().payload().configId()).isEqualTo(10000030);
     }
 
     @Test

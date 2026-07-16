@@ -14,15 +14,18 @@ import org.springframework.stereotype.Repository;
  * <p>Performs single-row lookups for recipients and report configurations
  * used in on-demand report generation.
  *
- * <p><b>Ahead of current scope</b> — see the class-level note on
- * {@link ReportConfigLookupRepository}. Not called from anywhere in the scheduled path;
- * confirm the on-demand lookup contract with the team before relying on it.
+ * <p>See the class-level note on {@link ReportConfigLookupRepository}: {@code
+ * findByRecipientAndReportType} is still ahead of scope (on-demand path); {@code
+ * findRecipientById} is called from the scheduled path's recipient-resolution processor.
  */
 @Repository
 public class JdbcReportConfigLookupRepository implements ReportConfigLookupRepository {
 
     private static final String FIND_RECIPIENT_SQL =
             "SELECT Id, Type, Value, Name FROM CAMT.Recipient WHERE Type = ? AND Value = ?";
+
+    private static final String FIND_RECIPIENT_BY_ID_SQL =
+            "SELECT Id, Type, Value, Name FROM CAMT.Recipient WHERE Id = ?";
 
     private static final String FIND_CONFIG_BY_RECIPIENT_AND_TYPE_SQL = """
             SELECT Id, ConfigId, ReportType, ReportVersion, ReportFrequency, Description,
@@ -41,6 +44,12 @@ public class JdbcReportConfigLookupRepository implements ReportConfigLookupRepos
     public Optional<RecipientRow> findRecipientByTypeAndValue(String type, String value) {
         List<RecipientRow> rows =
                 jdbcTemplate.query(FIND_RECIPIENT_SQL, ConfigurationRowMappers.RECIPIENT, type, value);
+        return singleRow(rows);
+    }
+
+    @Override
+    public Optional<RecipientRow> findRecipientById(long id) {
+        List<RecipientRow> rows = jdbcTemplate.query(FIND_RECIPIENT_BY_ID_SQL, ConfigurationRowMappers.RECIPIENT, id);
         return singleRow(rows);
     }
 

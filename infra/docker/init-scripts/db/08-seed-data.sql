@@ -300,12 +300,12 @@ SET @EdgeVersionId3B = SCOPE_IDENTITY();
     -- these fan into a single ReportConfig via ReportAgreementScope below.
 INSERT INTO CAMT.AgreementScope
 (AgreementVersionId, Name, MessageRecipientId, ReportType, Status, CreatedAt, ActivatedAt, CreatedBy)
-VALUES (@EdgeVersionId3A, N'Edge Scope - Fan-In A', @EdgeRecipientId3, N'CAMT052BT', N'ACTIVE', SYSDATETIME(), SYSDATETIME(), N'seed');
+VALUES (@EdgeVersionId3A, N'Edge Scope - Fan-In A', @EdgeRecipientId3, N'CAMT053E', N'ACTIVE', SYSDATETIME(), SYSDATETIME(), N'seed');
 SET @EdgeScopeId3A = SCOPE_IDENTITY();
 
 INSERT INTO CAMT.AgreementScope
 (AgreementVersionId, Name, MessageRecipientId, ReportType, Status, CreatedAt, ActivatedAt, CreatedBy)
-VALUES (@EdgeVersionId3B, N'Edge Scope - Fan-In B', @EdgeRecipientId3, N'CAMT052BT', N'ACTIVE', SYSDATETIME(), SYSDATETIME(), N'seed');
+VALUES (@EdgeVersionId3B, N'Edge Scope - Fan-In B', @EdgeRecipientId3, N'CAMT053E', N'ACTIVE', SYSDATETIME(), SYSDATETIME(), N'seed');
 SET @EdgeScopeId3B = SCOPE_IDENTITY();
 
 INSERT INTO CAMT.PaymentTypeAssignment (AgreementScopeId, PaymentType, CreatedAt, CreatedBy)
@@ -324,7 +324,7 @@ VALUES
 
 INSERT INTO CAMT.ReportConfig
 (ConfigId, ReportType, ReportVersion, ReportFrequency, Description, MessageRecipientId, AccountFormat, IsActive, IsPaginated, IsEmptyReportAllowed, IsBundled, CreatedAt, CreatedBy)
-VALUES (10000103, N'CAMT052BT', N'V02', N'ONE_TIME_PER_DAY', N'Edge case - multi-scope fan-in (2 agreements, 1 recipient/type)', @EdgeRecipientId3, N'BBAN', 1, 0, 0, 0, SYSDATETIME(), N'seed');
+VALUES (10000103, N'CAMT053E', N'V02', N'ONE_TIME_PER_DAY', N'Edge case - multi-scope fan-in (2 agreements, 1 recipient/type)', @EdgeRecipientId3, N'BBAN', 1, 0, 0, 0, SYSDATETIME(), N'seed');
 SET @EdgeConfigId3 = SCOPE_IDENTITY();
 
 INSERT INTO CAMT.ReportAgreementScope (ReportConfigId, AgreementScopeId, CreatedAt, CreatedBy)

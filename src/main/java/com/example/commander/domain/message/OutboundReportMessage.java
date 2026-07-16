@@ -28,6 +28,11 @@ import java.util.List;
  * @param recipient the message recipient
  * @param paymentTypeAllocations accounts/aliases included in this message, grouped by payment type
  * @param requestorName who initiated the request (null for scheduled)
+ * @param correlationId deterministic identifier, reproducible from message content — see
+ *     {@code FanOutAssemblyService}; maps onto {@code ReportCommandAudit.correlation_id}
+ * @param messageId non-deterministic identifier from {@link ReportMessageIdGenerator}, generated
+ *     once at assembly time and threaded unchanged through every later transformation — maps
+ *     onto {@code ReportCommandAudit.message_id}
  */
 public record OutboundReportMessage(
         int configId,
@@ -39,7 +44,9 @@ public record OutboundReportMessage(
         TriggerType triggerType,
         RecipientRef recipient,
         List<PaymentTypeAllocation> paymentTypeAllocations,
-        String requestorName) {
+        String requestorName,
+        String correlationId,
+        String messageId) {
 
     public OutboundReportMessage {
         paymentTypeAllocations = paymentTypeAllocations == null ? List.of() : List.copyOf(paymentTypeAllocations);

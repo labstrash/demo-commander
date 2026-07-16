@@ -21,9 +21,8 @@ import org.springframework.jdbc.core.RowMapper;
 /**
  * Unit tests for {@link JdbcReportConfigLookupRepository}.
  *
- * <p>This repository isn't called from the scheduled path yet, but its single-row lookup
- * contract (empty / exactly-one / more-than-one) is still worth locking down with a fully
- * mockable {@link JdbcTemplate} — unlike the TVP-backed staged queries in
+ * <p>Its single-row lookup contract (empty / exactly-one / more-than-one) is worth locking
+ * down with a fully mockable {@link JdbcTemplate} — unlike the TVP-backed staged queries in
  * {@link JdbcConfigurationReadRepository}, this class talks to {@code JdbcTemplate}
  * directly with no SQL Server-specific binding, so it doesn't need a real database to
  * unit test.
@@ -70,6 +69,27 @@ class JdbcReportConfigLookupRepositoryTest {
         assertThatThrownBy(() -> repository.findRecipientByTypeAndValue("BIC", "SOMEBIC"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("2");
+    }
+
+    @Test
+    void findRecipientByIdReturnsEmptyWhenNoMatch() {
+        repository = new JdbcReportConfigLookupRepository(jdbcTemplate);
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(999L))).thenReturn(List.of());
+
+        Optional<RecipientRow> result = repository.findRecipientById(999L);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void findRecipientByIdReturnsSingleMatch() {
+        repository = new JdbcReportConfigLookupRepository(jdbcTemplate);
+        RecipientRow recipient = new RecipientRow(999L, "BIC", "SOMEBIC", "Some Recipient");
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(999L))).thenReturn(List.of(recipient));
+
+        Optional<RecipientRow> result = repository.findRecipientById(999L);
+
+        assertThat(result).contains(recipient);
     }
 
     @Test
