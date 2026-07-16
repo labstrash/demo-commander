@@ -37,6 +37,7 @@ depends on it.
 | `JobParameters` types | Typed (`Instant` via `JobParameter<T>` — a Spring Batch 5.0 feature, not new in 6.0; corrected in Round 3), not stringified — see Round 1, Q5 |
 | Job repository metadata | Spring Batch's own `BATCH_JOB_*`/`BATCH_STEP_*` tables in SQL Server, via the explicit `spring-boot-starter-batch-jdbc` dependency (Spring Boot 4.x defaults to an in-memory, non-durable job repository otherwise) — separate schema migration from application tables |
 | Message payload — payment type | `OutboundReportMessage` carries `List<PaymentTypeAllocation>` (payment type code + its accounts + its aliases), not flat `accounts`/`aliases`/`paymentTypeCount` fields — preserves the payment-type association through bundling for the downstream Executor; see Round 4 |
+| Message payload — internal-identity trim | `OutboundReportMessage` does **not** carry `reportConfigId` (the `ReportConfig` surrogate key), `agreementScopeId`, or `reportFrequency`; `PaymentTypeAllocation`'s accounts/aliases are `AccountAllocation`/`AliasAllocation` (new `domain.message` records), not the `domain.config` DB-row types, so `id`/`paymentTypeAssignmentId` never reach the payload either. Business-facing fields (`configId`, `reportType`, `reportVersion`, window, `isBundled`, `triggerType`, `recipient`, allocations, `requestorName`) are unaffected; see Round 5 |
 
 ---
 
@@ -455,11 +456,20 @@ rest were accurate citation corrections or forward-looking operational notes.
 | 5 | Today's `execute()` has a single broad `catch (Exception e)`, which would swallow `JobInstanceAlreadyCompleteException` unless special-cased first | **Confirmed against the actual code** (`ReportSchedulingJob.java`'s current single catch block) and added as an explicit implementation note in §6 — the specific catch for `JobInstanceAlreadyCompleteException` must come before the general one, or the double-fire guard's expected exception gets treated as a real failure, backwards from the intent. |
 
 **Reviewer's note on method:** confirmed `ScheduledConfigReader`'s pagination loop
-matches §2's description exactly, `ReportSchedulingJob.execute()`'s
-`getScheduledFireTime()` → `ReportingPeriodCalculator` flow matches Round 1 Q6 exactly,
-and `OutboundReportMessage` already carries `reportConfigId` — exactly what §8's
-drain-order checkpoint needs, no domain model changes required. Everything else in the
-guide checked out cleanly against the actual branch and current framework docs.
+matches §2's description exactly, and `ReportSchedulingJob.execute()`'s
+`getScheduledFireTime()` → `ReportingPeriodCalculator` flow matches Round 1 Q6 exactly.
+Everything else in the guide checked out cleanly against the actual branch and current
+framework docs.
+
+**Correction (Round 5):** the original text of this note also claimed
+`OutboundReportMessage` carrying `reportConfigId` was "exactly what §8's drain-order
+checkpoint needs." That was never actually true of the implementation — §8's checkpoint
+(`ReportPipelineItemReader`'s `TreeGroup.configId`) is captured from `tree.config().id()`
+directly when a page's trees are assembled, independent of the message payload. It only
+*looked* load-bearing because the value happened to match. Round 5 removed
+`reportConfigId` from `OutboundReportMessage` entirely (Executor payload shouldn't carry
+the `ReportConfig` surrogate key), and the checkpoint kept working unchanged, confirming
+the two were never actually coupled.
 
 ---
 
@@ -493,13 +503,72 @@ Fan-out behaviour per §3's three strategies:
   of one pair of merged lists.
 - **Unbundled:** each message still carries exactly one account or alias, now wrapped in
   a single-element `List<PaymentTypeAllocation>` carrying that row's payment type instead
-  of a bare list. No change in message count or lineage (§3's `agreementScopeId`
-  attribution is untouched).
+  of a bare list. No change in message count or per-scope attribution at the time of this
+  round (`agreementScopeId` was still present on `OutboundReportMessage` then; Round 5
+  removed it — see below).
 
 | | Pros | Cons |
 |---|---|---|
 | Group by payment type (`PaymentTypeAllocation`) | Executor gets an unambiguous payment-type → accounts/aliases mapping with no re-derivation; matches the mutual-exclusivity invariant already enforced one level up in `PaymentTypeAssignmentNode` | Bundled messages that merge many payment types now carry a nested structure instead of two flat lists — slightly more to deserialize downstream |
 | Tag each row with `paymentType` instead (rejected) | Smaller diff — `AccountAssignmentRow`/`AliasAssignmentRow` already carry `paymentTypeAssignmentId`, so adding a `paymentType` string is a small addition | Message payload stays flat, so the Executor has to re-group rows by `paymentType` itself; bundled messages could carry rows that look identical except for the field an implementer might overlook |
+
+---
+
+## 16. Round 5 — Trimming Internal-Identity Fields Out of the Executor Payload
+
+**Problem:** `OutboundReportMessage` was assembled by carrying several fields straight
+through from internal domain types without asking whether the downstream Executor should
+ever see them:
+
+- `reportConfigId` — the `ReportConfig` table's surrogate primary key.
+- `agreementScopeId` — the originating scope ID (or `FanOutAssemblyService`'s
+  `NO_SINGLE_SCOPE_SENTINEL` for bundled/config-only messages).
+- `reportFrequency` — scheduling frequency, already implicit in which job fired.
+- `PaymentTypeAllocation.accounts()`/`.aliases()` were typed as `List<AccountAssignmentRow>`
+  / `List<AliasAssignmentRow>` — the exact `domain.config` DB-row records used internally
+  by `ReportConfigTreeAssembler`, so each row's `id` and `paymentTypeAssignmentId`
+  (internal surrogate keys, never used past tree assembly) rode along into the payload as
+  a side effect of type reuse rather than deliberate inclusion.
+
+None of these carry business meaning to the Executor, and surrogate keys/internal
+assignment IDs leaking into an external message payload is worth closing off before
+Phase 5 wires up real delivery.
+
+**Decision:**
+1. Drop `reportConfigId`, `agreementScopeId`, and `reportFrequency` from
+   `OutboundReportMessage`. `configId` (the business identifier) stays.
+2. Introduce two new `domain.message` records — `AccountAllocation(clearingNumber,
+   accountNumber, accountBban, currency)` and `AliasAllocation(aliasId)` — and retype
+   `PaymentTypeAllocation` to hold `List<AccountAllocation>`/`List<AliasAllocation>`
+   instead of the `domain.config` row types. `FanOutAssemblyService` maps
+   `AccountAssignmentRow → AccountAllocation` / `AliasAssignmentRow → AliasAllocation` at
+   allocation-construction time (bundled and unbundled paths both go through it); the
+   `domain.config` records themselves are untouched, since `id`/`paymentTypeAssignmentId`
+   are still load-bearing for `ReportConfigTreeAssembler`'s grouping-by-parent-ID logic
+   (`AccountAssignmentRow::paymentTypeAssignmentId`) — this is a payload-shape fix, not a
+   DB-row-shape fix.
+
+**Verified independent of the checkpoint:** `agreementScopeId`'s removal also retired
+`FanOutAssemblyService.NO_SINGLE_SCOPE_SENTINEL`, since nothing constructs a message with
+a scope ID anymore. And as corrected in §14's Round 3 note above, `reportConfigId`'s
+removal confirmed that §8's drain-order checkpoint (`ReportPipelineItemReader`) was never
+actually reading it off the message — `TreeGroup.configId` comes from `tree.config().id()`
+independently, so checkpoint/restart behavior is unaffected by this round.
+
+**Open concern, not resolved here — flagged for Phase 6:** the Phase 1 guide's Round 8
+records the audit dedup key as `(configId, scopeId, windowStart, windowEnd)`. With
+`agreementScopeId` gone from `OutboundReportMessage`, whatever writes Phase 6's audit rows
+can no longer read `scopeId` off the item it's given — it will need to source it some
+other way (e.g. from the `ReportConfigTree`/`AgreementScopeNode` at assembly time, threaded
+through by a means other than the Executor-facing message, since that field was
+deliberately excluded from the wire payload in this round). This guide's scope still
+excludes Phase 6 audit-row design; this note exists so that design doesn't quietly assume
+`scopeId` is still available on `OutboundReportMessage` when it picks the work up.
+
+| | Pros | Cons |
+|---|---|---|
+| Trim at the message layer (`domain.message` gets its own allocation types) | Executor payload only ever carries what it needs; cleanly separates "DB row shape" from "wire message shape," which the package split already implied but didn't enforce | New types (`AccountAllocation`, `AliasAllocation`) to maintain in parallel with `AccountAssignmentRow`/`AliasAssignmentRow`; Phase 6 needs a separate plan for sourcing `scopeId` |
+| Strip fields directly off `AccountAssignmentRow`/`AliasAssignmentRow` (rejected) | No new types | Breaks `ReportConfigTreeAssembler`'s grouping, which keys off `paymentTypeAssignmentId` on those exact records — those fields are load-bearing internally, not just payload cruft |
 
 **Not in scope — trigger type:** `OutboundReportMessage.triggerType` (a `TriggerType`
 enum with `SCHEDULED`/`ON_DEMAND` values) already existed prior to this pass —

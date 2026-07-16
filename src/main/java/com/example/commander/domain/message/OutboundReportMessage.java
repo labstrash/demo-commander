@@ -18,12 +18,9 @@ import java.util.List;
  *   <li><b>Unbundled:</b> Single allocation with one account or alias from a specific scope</li>
  * </ul>
  *
- * @param reportConfigId surrogate ID of the report configuration
  * @param configId business identifier of the report configuration
- * @param agreementScopeId ID of the originating scope (0 for bundled/config-only)
  * @param reportType type of report to generate
  * @param reportVersion version of the report
- * @param reportFrequency scheduling frequency
  * @param windowStartUtc start of the reporting window
  * @param windowEndUtc end of the reporting window
  * @param isBundled whether this message bundles multiple scopes
@@ -33,12 +30,9 @@ import java.util.List;
  * @param requestorName who initiated the request (null for scheduled)
  */
 public record OutboundReportMessage(
-        long reportConfigId,
         int configId,
-        long agreementScopeId,
         String reportType,
         String reportVersion,
-        String reportFrequency,
         Instant windowStartUtc,
         Instant windowEndUtc,
         boolean isBundled,

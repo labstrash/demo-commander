@@ -6,6 +6,8 @@ import com.example.commander.domain.config.AliasAssignmentRow;
 import com.example.commander.domain.config.PaymentTypeAssignmentNode;
 import com.example.commander.domain.config.ReportConfigRow;
 import com.example.commander.domain.config.ReportConfigTree;
+import com.example.commander.domain.message.AccountAllocation;
+import com.example.commander.domain.message.AliasAllocation;
 import com.example.commander.domain.message.MessageAssemblyContext;
 import com.example.commander.domain.message.OutboundReportMessage;
 import com.example.commander.domain.message.PaymentTypeAllocation;
@@ -39,14 +41,6 @@ import org.springframework.stereotype.Component;
 public class FanOutAssemblyService {
 
     /**
-     * Sentinel value for agreement scope ID when a message is not attributable to a single scope.
-     *
-     * <p>Used for zero-scope and bundled messages where accounts/aliases come from
-     * multiple scopes or no scopes at all.
-     */
-    public static final long NO_SINGLE_SCOPE_SENTINEL = 0L;
-
-    /**
      * Assembles a configuration tree into outbound messages.
      *
      * @param tree the assembled report configuration tree
@@ -66,24 +60,24 @@ public class FanOutAssemblyService {
     }
 
     private OutboundReportMessage configOnlyMessage(ReportConfigTree tree, MessageAssemblyContext context) {
-        return newMessage(tree, context, NO_SINGLE_SCOPE_SENTINEL, List.of());
+        return newMessage(tree, context, List.of());
     }
 
     private OutboundReportMessage bundledMessage(ReportConfigTree tree, MessageAssemblyContext context) {
         // LinkedHashMap: preserves first-seen payment type order across scopes for stable output.
-        Map<String, List<AccountAssignmentRow>> accountsByType = new LinkedHashMap<>();
-        Map<String, List<AliasAssignmentRow>> aliasesByType = new LinkedHashMap<>();
+        Map<String, List<AccountAllocation>> accountsByType = new LinkedHashMap<>();
+        Map<String, List<AliasAllocation>> aliasesByType = new LinkedHashMap<>();
 
         for (AgreementScopeNode scope : tree.scopes()) {
             for (PaymentTypeAssignmentNode assignment : scope.paymentTypeAssignments()) {
                 if (assignment.isAccountAssignment()) {
                     accountsByType
                             .computeIfAbsent(assignment.paymentType(), key -> new ArrayList<>())
-                            .addAll(assignment.accounts());
+                            .addAll(toAccountAllocations(assignment.accounts()));
                 } else if (assignment.isAliasAssignment()) {
                     aliasesByType
                             .computeIfAbsent(assignment.paymentType(), key -> new ArrayList<>())
-                            .addAll(assignment.aliases());
+                            .addAll(toAliasAllocations(assignment.aliases()));
                 }
             }
         }
@@ -98,7 +92,7 @@ public class FanOutAssemblyService {
                         aliasesByType.getOrDefault(paymentType, List.of())))
                 .toList();
 
-        return newMessage(tree, context, NO_SINGLE_SCOPE_SENTINEL, allocations);
+        return newMessage(tree, context, allocations);
     }
 
     private List<OutboundReportMessage> unbundledMessages(ReportConfigTree tree, MessageAssemblyContext context) {
@@ -107,14 +101,14 @@ public class FanOutAssemblyService {
         for (AgreementScopeNode scope : tree.scopes()) {
             for (PaymentTypeAssignmentNode assignment : scope.paymentTypeAssignments()) {
                 for (AccountAssignmentRow account : assignment.accounts()) {
-                    PaymentTypeAllocation allocation =
-                            new PaymentTypeAllocation(assignment.paymentType(), List.of(account), List.of());
-                    messages.add(newMessage(tree, context, scope.id(), List.of(allocation)));
+                    PaymentTypeAllocation allocation = new PaymentTypeAllocation(
+                            assignment.paymentType(), toAccountAllocations(List.of(account)), List.of());
+                    messages.add(newMessage(tree, context, List.of(allocation)));
                 }
                 for (AliasAssignmentRow alias : assignment.aliases()) {
-                    PaymentTypeAllocation allocation =
-                            new PaymentTypeAllocation(assignment.paymentType(), List.of(), List.of(alias));
-                    messages.add(newMessage(tree, context, scope.id(), List.of(allocation)));
+                    PaymentTypeAllocation allocation = new PaymentTypeAllocation(
+                            assignment.paymentType(), List.of(), toAliasAllocations(List.of(alias)));
+                    messages.add(newMessage(tree, context, List.of(allocation)));
                 }
             }
         }
@@ -122,20 +116,27 @@ public class FanOutAssemblyService {
         return messages;
     }
 
+    private static List<AccountAllocation> toAccountAllocations(List<AccountAssignmentRow> accounts) {
+        return accounts.stream()
+                .map(account -> new AccountAllocation(
+                        account.clearingNumber(), account.accountNumber(), account.accountBban(), account.currency()))
+                .toList();
+    }
+
+    private static List<AliasAllocation> toAliasAllocations(List<AliasAssignmentRow> aliases) {
+        return aliases.stream()
+                .map(alias -> new AliasAllocation(alias.aliasId()))
+                .toList();
+    }
+
     private OutboundReportMessage newMessage(
-            ReportConfigTree tree,
-            MessageAssemblyContext context,
-            long agreementScopeId,
-            List<PaymentTypeAllocation> paymentTypeAllocations) {
+            ReportConfigTree tree, MessageAssemblyContext context, List<PaymentTypeAllocation> paymentTypeAllocations) {
 
         ReportConfigRow config = tree.config();
         return new OutboundReportMessage(
-                config.id(),
                 config.configId(),
-                agreementScopeId,
                 config.reportType(),
                 context.reportVersion(),
-                config.reportFrequency(),
                 context.windowStartUtc(),
                 context.windowEndUtc(),
                 config.isBundled(),

@@ -1,7 +1,5 @@
 package com.example.commander.domain.message;
 
-import com.example.commander.domain.config.AccountAssignmentRow;
-import com.example.commander.domain.config.AliasAssignmentRow;
 import java.util.List;
 
 /**
@@ -20,7 +18,7 @@ import java.util.List;
  * @param aliases alias assignments for this payment type (empty if account allocation)
  */
 public record PaymentTypeAllocation(
-        String paymentType, List<AccountAssignmentRow> accounts, List<AliasAssignmentRow> aliases) {
+        String paymentType, List<AccountAllocation> accounts, List<AliasAllocation> aliases) {
 
     public PaymentTypeAllocation {
         accounts = accounts == null ? List.of() : List.copyOf(accounts);

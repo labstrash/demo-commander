@@ -17,12 +17,9 @@ class LoggingReportMessageWriterTest {
     @Test
     void writesAChunkOfMessagesWithoutThrowing() {
         OutboundReportMessage message = new OutboundReportMessage(
-                1L,
                 12345678,
-                0L,
                 "CAMT054C",
                 "1.0",
-                "DAILY",
                 Instant.parse("2026-07-01T00:00:00Z"),
                 Instant.parse("2026-07-02T00:00:00Z"),
                 false,

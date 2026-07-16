@@ -21,15 +21,7 @@ public class LoggingReportMessageWriter implements ItemWriter<OutboundReportMess
     public void write(Chunk<? extends OutboundReportMessage> chunk) {
         log.info("Writing chunk of {} outbound report messages", chunk.size());
         for (OutboundReportMessage message : chunk) {
-            log.debug(
-                    "reportConfigId={}, configId={}, agreementScopeId={}, reportType={}, paymentTypes={},"
-                            + " accounts={}",
-                    message.reportConfigId(),
-                    message.configId(),
-                    message.agreementScopeId(),
-                    message.reportType(),
-                    message.paymentTypeCount(),
-                    message.accountCount());
+            log.debug("outboundReportMessage={}", message);
         }
     }
 }

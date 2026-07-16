@@ -31,7 +31,6 @@ class FanOutAssemblyServiceTest {
         assertThat(messages).hasSize(1);
         OutboundReportMessage message = messages.get(0);
         assertThat(message.isConfigOnly()).isTrue();
-        assertThat(message.agreementScopeId()).isEqualTo(FanOutAssemblyService.NO_SINGLE_SCOPE_SENTINEL);
         // IsBundled is still stamped through even though it drives no fan-out here
         assertThat(message.isBundled()).isTrue();
     }
@@ -55,7 +54,6 @@ class FanOutAssemblyServiceTest {
         OutboundReportMessage message = messages.get(0);
         assertThat(message.paymentTypeCount()).isEqualTo(2);
         assertThat(message.accountCount()).isEqualTo(1);
-        assertThat(message.agreementScopeId()).isEqualTo(FanOutAssemblyService.NO_SINGLE_SCOPE_SENTINEL);
 
         PaymentTypeAllocation swishAllocation = allocationFor(message, "SWISH");
         assertThat(swishAllocation.accounts()).hasSize(1);
@@ -106,15 +104,6 @@ class FanOutAssemblyServiceTest {
         // total message count = sum of every account/alias row
         assertThat(messages).hasSize(3);
         assertThat(messages).allMatch(m -> m.paymentTypeCount() == 1);
-
-        // lineage: each message's agreementScopeId matches the scope it actually came from,
-        // not just message count ("how lineage survives flattening")
-        assertThat(messages)
-                .filteredOn(FanOutAssemblyServiceTest::hasAccounts)
-                .allMatch(m -> m.agreementScopeId() == 101L);
-        assertThat(messages)
-                .filteredOn(FanOutAssemblyServiceTest::hasAliases)
-                .allMatch(m -> m.agreementScopeId() == 102L);
 
         // each unbundled message's single allocation still carries the originating payment type
         assertThat(messages)
