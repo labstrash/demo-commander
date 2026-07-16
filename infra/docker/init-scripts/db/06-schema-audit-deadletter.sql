@@ -16,6 +16,13 @@
 --   - status is NVARCHAR(30), not NVARCHAR(20): the Java-only status values
 --     REJECTED_CONFIG_NOT_ELIGIBLE (28 chars) and REJECTED_INVALID_WINDOW
 --     (23 chars) do not fit in NVARCHAR(20).
+--
+-- DeadLetterMessage.agreement_scope_id is BIGINT NULL, not NOT NULL: a bundled
+-- or config-only message has no single originating scope (it merges allocations
+-- across scopes, or has none at all), so there is no value to put there for
+-- those rows. Populated only for unbundled messages. report_config_id stays
+-- NOT NULL — every dead-lettered message was fully assembled and only failed
+-- at the MQ-send step, so it always has exactly one originating ReportConfig.
 -- =============================================================================
 
 USE [REPORTDB];
@@ -43,7 +50,7 @@ BEGIN TRY
         id                  BIGINT NOT NULL IDENTITY(1,1),
         message_id          NVARCHAR(100) NOT NULL,
         report_config_id    BIGINT NOT NULL,
-        agreement_scope_id  BIGINT NOT NULL,
+        agreement_scope_id  BIGINT NULL,
         report_type         NVARCHAR(40) NOT NULL,
         message_payload     NVARCHAR(MAX) NOT NULL,
         target_queue        NVARCHAR(100) NOT NULL,

@@ -4,6 +4,7 @@ import com.example.commander.batch.config.BatchPipelineProperties;
 import com.example.commander.config.ReadLayerProperties;
 import com.example.commander.config.SchedulingProperties;
 import com.example.commander.mq.MqProperties;
+import com.example.commander.mq.MqResilienceProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -13,7 +14,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
     SchedulingProperties.class,
     ReadLayerProperties.class,
     BatchPipelineProperties.class,
-    MqProperties.class
+    MqProperties.class,
+    MqResilienceProperties.class
 })
 public class DemoCommanderApplication {
 

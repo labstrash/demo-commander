@@ -433,12 +433,11 @@ actively use them.
 polls `CAMT.DeadLetterMessage WHERE status = 'PENDING_RETRY' AND next_retry_at <= now`,
 and for each row: reconstructs the send from `message_payload`, runs it through the
 *same* classify (§6) → `RetryTemplate` (§7) → circuit breaker (§9) path the primary
-writer uses (not a parallel implementation), and on success marks the row sent (or
-deletes it, depending on whether a sent-history is wanted — left as an implementation-time
-choice, not load-bearing for this guide's decisions); on further failure, increments
-`retry_count`, recomputes `next_retry_at` with backoff, and — once `retry_count` reaches
-`max_retries` — flips `status` to a terminal failed state for manual/dashboard attention
-rather than retrying forever.
+writer uses (not a parallel implementation), and on success **deletes the row** — resolved
+post-implementation (was left open here as "marks sent or deletes"); on further failure,
+increments `retry_count`, recomputes `next_retry_at` with backoff (per-report-type since
+Round 1 — see §15), and — once `retry_count` reaches `max_retries` — flips `status` to a
+terminal failed state for manual/dashboard attention rather than retrying forever.
 
 | | Pros | Cons |
 |---|---|---|
@@ -555,6 +554,13 @@ depend on anything from Part B existing yet.
 
 - **Failure classification:** unit test `MqFailureClassifier` against representative
   transient vs. permanent exception types.
+- **Tiered dead-letter backoff (§15):** unit test `MqResilienceProperties`' tier
+  flattening/lookup — a report type listed in a tier returns that tier's `Backoff`, one
+  not listed in any tier falls back to `deadLetterRetryBackoffDefault`, and a report type
+  listed in two tiers fails fast at startup (naming the type and both tiers), the same
+  pattern as `SchedulingPropertiesTest`'s duplicate `(report-type, frequency)` check.
+  Separately, `DeadLetterRecoveryJob.computeNextRetryAt` produces a different
+  `next_retry_at` for two report types in different tiers, given the same `retryCount`.
 - **Circuit breaker (§9):** unit-testable in isolation, no MQ needed — feed it a
   sequence of successes/failures and assert it opens at the configured threshold, skips
   attempts (not just retries) while open, and closes again after the cool-down window
@@ -580,10 +586,12 @@ depend on anything from Part B existing yet.
    columns supporting rejection-audit rows) — is explicitly flagged in the migration
    script itself as needing confirmation. Not this phase's decision to make; Phase 6
    should resolve it before writing to that table.
-2. Whether a successfully-recovered dead-letter row is deleted or retained with a
-   terminal "sent" status (§10) — left as an implementation-time choice; doesn't affect
-   any decision in this guide, but Phase 6/8 dashboards may have a preference worth
-   settling before implementation.
+2. ~~Whether a successfully-recovered dead-letter row is deleted or retained with a
+   terminal "sent" status (§10)~~ — **Resolved post-implementation: deleted, not
+   retained.** A resent message needs no further tracking, and this keeps
+   `CAMT.DeadLetterMessage` scoped to rows that still need attention rather than growing
+   an unbounded sent-history nobody reads. If Phase 6/8 dashboards later want delivery
+   history, that belongs in `CAMT.ReportCommandAudit` (Phase 6), not this table.
 3. Dead-letter alerting thresholds (backlog size/age triggering a page vs.
    dashboard-only signal) — already an explicitly open item in the solution document
    itself (§7.3), not resolved here; this guide only guarantees the data (`status`,
@@ -591,3 +599,94 @@ depend on anything from Part B existing yet.
 4. Circuit-breaker threshold and cool-down duration (§9) — needs real MQ
    outage/recovery-time data, not sized in this guide, same category as Phase 4's
    deferred chunk-size tuning.
+
+---
+
+## 15. Round 1 — Per-Report-Type Dead-Letter Retry Backoff (Part B, post-implementation)
+
+**Problem, raised on review:** different report types have very different generation
+cadences — some fire every 30 minutes, some once a day — and some are higher-priority
+than others for how quickly a failed delivery needs to be made right. §10's recovery job
+treats every dead-lettered row identically: one global backoff
+(`dead-letter-retry-base-backoff-seconds` / `-max-backoff-seconds`) governs how long *any*
+row waits before its next recovery attempt, regardless of report type.
+
+**Considered and rejected: per-report-type poll cron.** The initial framing of this
+question was whether `commander.mq.resilience.recovery-job-cron` itself should vary by
+report type — i.e., separate Quartz jobs/triggers, each polling `CAMT.DeadLetterMessage`
+(filtered to its own report type) on its own schedule. Rejected: the poll cron governs
+*how often the system looks*, not *how urgently a given row is retried*. Tying it to
+report type would mean a low-frequency report (e.g. once-daily) that fails shortly after
+its own firing might not get re-checked until something closer to its next scheduled run
+— backwards from what "priority" should mean, and it multiplies Quartz jobs/triggers for
+a distinction (poll frequency) that doesn't actually need to vary per row to achieve the
+real goal (retry cadence).
+
+**Decision:** Keep §10's recovery job exactly as designed — one Quartz job, one trigger,
+one global poll cron, one `findDueForRetry` query spanning every report type. Make the
+**backoff** (how long an individual row waits between attempts) per-report-type instead.
+A single poll cadence, as long as it's frequent enough to catch the shortest configured
+backoff, is sufficient — priority is entirely expressed through each row's own
+`next_retry_at`, computed from its report type's backoff configuration. A low-priority
+row simply sits longer between attempts even though the poller checks on the same
+schedule as every other row.
+
+**Shape, grouped by tier — not a flat per-type map.** A flat `Map<String, Backoff>` (this
+round's first draft) works but repeats identical `base-seconds`/`max-seconds` for every
+report type that shares a priority tier — the common case, since types naturally cluster
+into a handful of urgency levels rather than each needing a bespoke value. Grouping them
+mirrors `SchedulingProperties.schedules[N].report-types` — a pattern already established
+and validated in this exact codebase for exactly this shape (one definition, many report
+types), rather than inventing a new one. `MqResilienceProperties` carries:
+- `deadLetterRetryBackoffDefault` — unchanged from the first draft: the `Backoff
+  { baseSeconds, maxSeconds }` applied to any report type not listed in any tier
+  (default `60` / `3600`, matching today's global values, so existing behavior is the
+  fallback, not a silent change for unconfigured types).
+- `deadLetterRetryBackoffTiers` — `List<BackoffTier>`, each `BackoffTier` holding one
+  `Backoff` plus the `List<String> reportTypes` it applies to.
+
+Configuration shape:
+```
+commander.mq.resilience.dead-letter-retry-backoff-default.base-seconds=60
+commander.mq.resilience.dead-letter-retry-backoff-default.max-seconds=3600
+
+commander.mq.resilience.dead-letter-retry-backoff-tiers[0].base-seconds=15
+commander.mq.resilience.dead-letter-retry-backoff-tiers[0].max-seconds=300
+commander.mq.resilience.dead-letter-retry-backoff-tiers[0].report-types=CAMT052B,CAMT052BT
+
+commander.mq.resilience.dead-letter-retry-backoff-tiers[1].base-seconds=120
+commander.mq.resilience.dead-letter-retry-backoff-tiers[1].max-seconds=7200
+commander.mq.resilience.dead-letter-retry-backoff-tiers[1].report-types=CAMT054C,CAMT054D
+```
+
+At startup, `MqResilienceProperties` flattens `deadLetterRetryBackoffTiers` into an
+internal `Map<String, Backoff>` (report type → its tier's backoff), built once rather
+than per lookup, and validates that no report type appears in more than one tier —
+throwing `IllegalStateException` naming the type and both tiers if it does, the same
+shape of fail-fast check `SchedulingProperties.validate()` already runs for duplicate
+`(report-type, frequency)` pairs. `DeadLetterRecoveryJob.computeNextRetryAt` takes
+`row.reportType()` (already on `DeadLetterMessageRow`) alongside `retryCount`, looks up
+the flattened map, and falls back to `deadLetterRetryBackoffDefault` when the type isn't
+in any tier — same `getOrDefault`-style fallback `MqProperties.isDeliveryEnabled` already
+uses for the per-type delivery kill switch, not a new pattern.
+
+**Explicitly not changed, to keep this round's scope tight:**
+- **The poll cron stays global** — reasoning above.
+- **`deadLetterMaxRetries` stays global** — the request was about retry *speed*, not
+  attempt *count*; revisit only if a real need for per-type attempt budgets shows up.
+- **The first recovery attempt stays immediate for every report type** (`next_retry_at =
+  now` at initial dead-letter insertion, in `MqReportMessageWriter` — unchanged). Priority
+  differentiation only applies from the second attempt onward, once §10's job has actually
+  observed a repeat failure — every message still gets one prompt attempt regardless of
+  type, which is the right default before any priority signal exists.
+- **In-process retry (§7: `retryMaxAttempts`/`retryBackoffMs`) and the circuit breaker
+  (§9: `breakerFailureThreshold`/`breakerCoolDownSeconds`) stay global** — both are about
+  the primary send path's behavior under a live MQ connection attempt, not about spacing
+  out recovery-job attempts against a dead-lettered backlog; report-type priority has no
+  bearing on either.
+
+| | Pros | Cons |
+|---|---|---|
+| Tiered backoff (`deadLetterRetryBackoffTiers`), global poll cron | One Quartz job/trigger regardless of how many report types get tuned; priority is expressed exactly where it matters (how long a failed row waits); one `base-seconds`/`max-seconds` pair covers every report type in a tier instead of repeating it per type; default fallback means unconfigured types behave exactly as before this round; mirrors `SchedulingProperties`' existing report-type-grouping shape rather than a new pattern |  Poll cron must stay frequent enough to serve the shortest configured backoff across all tiers — a very aggressive tier backoff (seconds) still only gets checked as often as the shared poll interval allows; a report type accidentally listed in two tiers needs an explicit startup validation to catch, rather than failing silently |
+| Flat per-type map, `Map<String, Backoff>` (superseded) | Simpler binding — no flattening/validation step | Repeats identical `base-seconds`/`max-seconds` for every report type in the same priority tier — the common case — instead of stating it once |
+| Per-report-type poll cron (rejected) | Superficially matches "priority" as literally asked | Couples retry urgency to how often the system polls, not to backoff between attempts — the wrong lever; multiplies Quartz jobs/triggers per configured report type for no corresponding benefit |

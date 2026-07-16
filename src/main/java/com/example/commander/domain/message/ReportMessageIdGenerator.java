@@ -27,7 +27,10 @@ public class ReportMessageIdGenerator {
             throw new IllegalArgumentException("Report type must have at least 6 characters.");
         }
 
-        // Extract a compact representation of the report type
+        // Extract a compact representation of the report type. The replace/toUpperCase are
+        // defensive, not load-bearing for today's config.mqsc report types (already
+        // hyphen-free and uppercase) - kept so the substring(5)/length math stays correct
+        // if a differently-formatted report type is ever introduced.
         String shortType = reportType.replace("-", "").toUpperCase().substring(5);
 
         // Generate a globally unique TSID value
