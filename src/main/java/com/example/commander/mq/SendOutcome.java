@@ -5,8 +5,12 @@ package com.example.commander.mq;
  *
  * @param type which of the four outcomes this is
  * @param cause the failure's cause, or {@code null} on {@link Type#SUCCESS}
+ * @param jmsMessageId the MQ provider's own assigned message ID (from {@code
+ *     Message.getJMSMessageID()} after a successful send), or {@code null} for any
+ *     non-{@link Type#SUCCESS} outcome. Distinct from Commander's own generated
+ *     {@code OutboundReportMessage.messageId()}.
  */
-public record SendOutcome(Type type, Throwable cause) {
+public record SendOutcome(Type type, Throwable cause, String jmsMessageId) {
 
     public enum Type {
         /** The message was sent successfully. */
@@ -19,20 +23,20 @@ public record SendOutcome(Type type, Throwable cause) {
         PERMANENT
     }
 
-    public static SendOutcome success() {
-        return new SendOutcome(Type.SUCCESS, null);
+    public static SendOutcome success(String jmsMessageId) {
+        return new SendOutcome(Type.SUCCESS, null, jmsMessageId);
     }
 
     public static SendOutcome breakerOpen() {
-        return new SendOutcome(Type.BREAKER_OPEN, null);
+        return new SendOutcome(Type.BREAKER_OPEN, null, null);
     }
 
     public static SendOutcome transientExhausted(Throwable cause) {
-        return new SendOutcome(Type.TRANSIENT_EXHAUSTED, cause);
+        return new SendOutcome(Type.TRANSIENT_EXHAUSTED, cause, null);
     }
 
     public static SendOutcome permanent(Throwable cause) {
-        return new SendOutcome(Type.PERMANENT, cause);
+        return new SendOutcome(Type.PERMANENT, cause, null);
     }
 
     /**

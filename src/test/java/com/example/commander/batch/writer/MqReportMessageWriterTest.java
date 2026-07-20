@@ -1,5 +1,6 @@
 package com.example.commander.batch.writer;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -10,6 +11,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.example.commander.domain.audit.ReportCommandAuditEntry;
+import com.example.commander.domain.audit.ReportCommandAuditStatus;
 import com.example.commander.domain.message.OutboundReportMessage;
 import com.example.commander.domain.message.PipelineReportMessage;
 import com.example.commander.domain.message.RecipientRef;
@@ -19,6 +22,7 @@ import com.example.commander.mq.MqResilienceProperties;
 import com.example.commander.mq.ResilientMqSender;
 import com.example.commander.mq.SendOutcome;
 import com.example.commander.repository.DeadLetterMessageRepository;
+import com.example.commander.repository.ReportCommandAuditRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -29,6 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.batch.infrastructure.item.Chunk;
@@ -49,6 +54,9 @@ class MqReportMessageWriterTest {
     @Mock
     private DeadLetterMessageRepository deadLetterRepository;
 
+    @Mock
+    private ReportCommandAuditRepository auditRepository;
+
     private MqReportMessageWriter writer;
 
     private MqReportMessageWriter newWriter() {
@@ -58,7 +66,17 @@ class MqReportMessageWriterTest {
         resilienceProperties.setDeadLetterMaxRetries(5);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         return new MqReportMessageWriter(
-                objectMapper, sender, deadLetterRepository, clock, mqProperties, resilienceProperties, "CAMT054C");
+                objectMapper,
+                sender,
+                deadLetterRepository,
+                auditRepository,
+                clock,
+                mqProperties,
+                resilienceProperties,
+                "CAMT054C",
+                "DAILY",
+                111L,
+                222L);
     }
 
     @ParameterizedTest
@@ -83,15 +101,66 @@ class MqReportMessageWriterTest {
                         eq(NOW));
     }
 
+    @ParameterizedTest
+    @MethodSource("failureOutcomes")
+    void writesAFailedAuditRowOnAnyFailureOutcome(SendOutcome outcome) throws Exception {
+        writer = newWriter();
+        when(objectMapper.writeValueAsString(any())).thenReturn("{\"json\":true}");
+        when(sender.send(eq(TARGET_QUEUE), anyString())).thenReturn(outcome);
+        PipelineReportMessage item = message();
+
+        writer.write(new Chunk<>(item));
+
+        ReportCommandAuditEntry entry = capturedAuditEntry();
+        assertThat(entry.status()).isEqualTo(ReportCommandAuditStatus.FAILED);
+        assertThat(entry.mqMessageId()).isNull();
+        assertThat(entry.retryCount()).isZero();
+        assertThat(entry.jobExecutionId()).isEqualTo(111L);
+        assertThat(entry.stepExecutionId()).isEqualTo(222L);
+        assertThat(entry.reportFrequency()).isEqualTo("DAILY");
+    }
+
     @Test
     void successfulSendNeverWritesADeadLetterRow() throws Exception {
         writer = newWriter();
         when(objectMapper.writeValueAsString(any())).thenReturn("{\"json\":true}");
-        when(sender.send(eq(TARGET_QUEUE), anyString())).thenReturn(SendOutcome.success());
+        when(sender.send(eq(TARGET_QUEUE), anyString())).thenReturn(SendOutcome.success("jms-msg-id"));
 
         writer.write(new Chunk<>(message()));
 
         verify(deadLetterRepository, never()).insert(any(), anyLong(), any(), any(), any(), any(), anyInt(), any());
+    }
+
+    @Test
+    void successfulSendWritesASentAuditRowWithTheRealJmsMessageId() throws Exception {
+        writer = newWriter();
+        when(objectMapper.writeValueAsString(any())).thenReturn("{\"json\":true}");
+        when(sender.send(eq(TARGET_QUEUE), anyString())).thenReturn(SendOutcome.success("jms-msg-id"));
+
+        writer.write(new Chunk<>(message()));
+
+        ReportCommandAuditEntry entry = capturedAuditEntry();
+        assertThat(entry.status()).isEqualTo(ReportCommandAuditStatus.SENT);
+        assertThat(entry.mqMessageId()).isEqualTo("jms-msg-id");
+    }
+
+    @Test
+    void existingSentRowForCorrelationIdSkipsTheSendEntirely() throws Exception {
+        writer = newWriter();
+        when(auditRepository.existsSent("corr-id")).thenReturn(true);
+
+        writer.write(new Chunk<>(message()));
+
+        verify(sender, never()).send(any(), any());
+        verify(deadLetterRepository, never()).insert(any(), anyLong(), any(), any(), any(), any(), anyInt(), any());
+        ReportCommandAuditEntry entry = capturedAuditEntry();
+        assertThat(entry.status()).isEqualTo(ReportCommandAuditStatus.SKIPPED_DUPLICATE);
+    }
+
+    private ReportCommandAuditEntry capturedAuditEntry() {
+        ArgumentCaptor<ReportCommandAuditEntry> captor = ArgumentCaptor.forClass(ReportCommandAuditEntry.class);
+        verify(auditRepository).insert(captor.capture());
+        return captor.getValue();
     }
 
     private static Stream<SendOutcome> failureOutcomes() {

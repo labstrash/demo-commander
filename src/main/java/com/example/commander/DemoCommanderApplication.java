@@ -1,5 +1,6 @@
 package com.example.commander;
 
+import com.example.commander.audit.AuditRetentionProperties;
 import com.example.commander.batch.config.BatchPipelineProperties;
 import com.example.commander.config.ReadLayerProperties;
 import com.example.commander.config.SchedulingProperties;
@@ -15,7 +16,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
     ReadLayerProperties.class,
     BatchPipelineProperties.class,
     MqProperties.class,
-    MqResilienceProperties.class
+    MqResilienceProperties.class,
+    AuditRetentionProperties.class
 })
 public class DemoCommanderApplication {
 

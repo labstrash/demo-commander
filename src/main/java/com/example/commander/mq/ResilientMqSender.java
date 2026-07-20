@@ -1,5 +1,7 @@
 package com.example.commander.mq;
 
+import jakarta.jms.Message;
+import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jms.core.JmsTemplate;
@@ -51,10 +53,21 @@ public class ResilientMqSender {
             return SendOutcome.breakerOpen();
         }
 
+        // Captured from the MessageCreator below: after MessageProducer.send() completes,
+        // the JMS provider has populated JMSMessageID on this exact Message instance
+        // in-place. Reading it here — rather than from convertAndSend(), which returns
+        // nothing — is what makes SendOutcome.jmsMessageId() the real broker-assigned ID,
+        // not a duplicate of Commander's own generated messageId.
+        AtomicReference<Message> sentMessage = new AtomicReference<>();
+
         try {
             retryTemplate.execute(context -> {
                 try {
-                    jmsTemplate.convertAndSend(queue, payload);
+                    jmsTemplate.send(queue, session -> {
+                        Message message = session.createTextMessage(payload);
+                        sentMessage.set(message);
+                        return message;
+                    });
                 } catch (RuntimeException ex) {
                     if (classifier.isTransient(ex)) {
                         throw new TransientMqFailureException(ex);
@@ -64,7 +77,7 @@ public class ResilientMqSender {
                 return null;
             });
             circuitBreaker.recordSuccess();
-            return SendOutcome.success();
+            return SendOutcome.success(jmsMessageId(sentMessage.get(), queue));
         } catch (TransientMqFailureException ex) {
             circuitBreaker.recordFailure();
             log.warn("Send to queue={} exhausted every retry attempt", queue, ex.getCause());
@@ -72,6 +85,21 @@ public class ResilientMqSender {
         } catch (PermanentMqFailureException ex) {
             log.warn("Send to queue={} failed permanently, not retried", queue, ex.getCause());
             return SendOutcome.permanent(ex.getCause());
+        }
+    }
+
+    /**
+     * Reads back the provider-assigned message ID. Falls back to {@code null} (rather than
+     * failing the send, which already succeeded) if the provider didn't set one — some
+     * configurations disable message IDs for performance, though nothing here does that
+     * deliberately.
+     */
+    private static String jmsMessageId(Message message, String queue) {
+        try {
+            return message == null ? null : message.getJMSMessageID();
+        } catch (Exception ex) {
+            log.warn("Send to queue={} succeeded but JMSMessageID could not be read", queue, ex);
+            return null;
         }
     }
 }
